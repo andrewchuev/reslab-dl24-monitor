@@ -68,6 +68,26 @@ pub fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+/// Rejects decoded values so far outside any plausible physical range that
+/// they can only be framing corruption - e.g. a stray header/trailer byte
+/// pair that matched by chance inside unrelated bytes, decoding garbage as
+/// a "valid" 24-bit reading. Callers retry on rejection, same as any other
+/// failed read, instead of feeding a spike straight to the UI.
+pub fn is_plausible_reading(cmd: u8, value: f64) -> bool {
+    if !value.is_finite() {
+        return false;
+    }
+    match cmd {
+        ISON => (0.0..=1.0).contains(&value),
+        VOLTAGE | LIM_VOLT => (0.0..=200.0).contains(&value),
+        CURRENT | LIM_CURR => (0.0..=50.0).contains(&value),
+        CAP_AH => (0.0..=100.0).contains(&value),
+        CAP_WH => (0.0..=5000.0).contains(&value),
+        TEMP => (-40.0..=150.0).contains(&value),
+        _ => true,
+    }
+}
+
 /// Encodes a value as the protocol's (integer, 2-digit fraction) byte pair, e.g. `2.5 -> (2, 50)`.
 /// Used for set-current/set-cutoff commands. Negative input clamps to 0; out-of-byte-range
 /// magnitudes clamp rather than wrap, since silently sending a wrapped value to the device
@@ -123,5 +143,23 @@ mod tests {
     fn float_to_int_frac_clamps_out_of_range_input() {
         assert_eq!(float_to_int_frac(-5.0), (0, 0));
         assert_eq!(float_to_int_frac(300.0), (255, 0));
+    }
+
+    #[test]
+    fn is_plausible_reading_accepts_realistic_values() {
+        assert!(is_plausible_reading(VOLTAGE, 19.68));
+        assert!(is_plausible_reading(CURRENT, 0.997));
+        assert!(is_plausible_reading(TEMP, 30.0));
+        assert!(is_plausible_reading(ISON, 1.0));
+    }
+
+    #[test]
+    fn is_plausible_reading_rejects_framing_garbage() {
+        // Values in this ballpark are exactly what a stray CA-CB match inside
+        // unrelated bytes decodes to - nowhere near a real load's range.
+        assert!(!is_plausible_reading(VOLTAGE, 44019.0));
+        assert!(!is_plausible_reading(CURRENT, 271771.0));
+        assert!(!is_plausible_reading(VOLTAGE, f64::NAN));
+        assert!(!is_plausible_reading(VOLTAGE, -1.0));
     }
 }

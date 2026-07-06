@@ -96,21 +96,35 @@ pub fn send_command(
             Ok(n) if n > 0 => {
                 buffer.extend_from_slice(&chunk[..n]);
 
-                if let Some(start) = protocol::find_subslice(&buffer, &expected_header) {
-                    if buffer.len().saturating_sub(start) >= expected_len {
-                        let packet = buffer[start..start + expected_len].to_vec();
+                // Loops (instead of checking once) so a false header match
+                // that's immediately followed by a real frame - already
+                // fully buffered from this same read - gets found right
+                // away, rather than only being noticed once more bytes
+                // happen to arrive on a later read().
+                while let Some(start) = protocol::find_subslice(&buffer, &expected_header) {
+                    if buffer.len().saturating_sub(start) < expected_len {
+                        break; // not enough bytes yet for this candidate
+                    }
+                    let packet = buffer[start..start + expected_len].to_vec();
 
-                        if command >= 0x10 {
-                            if packet.len() >= 7
-                                && packet[5] == RESPONSE_TRAILER[0]
-                                && packet[6] == RESPONSE_TRAILER[1]
-                            {
-                                return Ok(packet);
-                            }
-                            // invalid trailer, keep searching
-                        } else {
+                    if command >= 0x10 {
+                        if packet.len() >= 7
+                            && packet[5] == RESPONSE_TRAILER[0]
+                            && packet[6] == RESPONSE_TRAILER[1]
+                        {
                             return Ok(packet);
                         }
+                        // Header matched by chance inside unrelated bytes
+                        // (trailer two bytes later doesn't line up). Drop it
+                        // so the next scan can't re-match this same false
+                        // start forever - without this, a buffer that never
+                        // finds a real frame keeps re-checking the same
+                        // spurious header on every loop iteration, and a
+                        // lucky trailer match later would decode garbage as
+                        // a "valid" reading.
+                        buffer.drain(..=start);
+                    } else {
+                        return Ok(packet);
                     }
                 }
             }
@@ -159,6 +173,12 @@ pub fn get_val(
                 } else {
                     let raw: u32 = ((d1 as u32) << 16) | ((d2 as u32) << 8) | (d3 as u32);
                     let v = (raw as f64) / protocol::mul(command);
+                    if !protocol::is_plausible_reading(command, v) {
+                        log::warn!(
+                            "get_val(cmd={command:#04x}): rejected implausible reading {v} (likely framing corruption), retrying"
+                        );
+                        continue;
+                    }
                     return Ok(Some(Val::Num(v)));
                 }
             }
@@ -430,6 +450,26 @@ mod tests {
         let packet = send_command(&mut port, protocol::VOLTAGE, 0, 0, &stop).unwrap();
 
         assert_eq!(packet, response_packet(0, 0x30, 0x39));
+    }
+
+    #[test]
+    fn send_command_recovers_from_a_stray_header_match() {
+        // A CA-CB pair that shows up by chance inside unrelated bytes, whose
+        // trailer doesn't line up, immediately followed by a real frame -
+        // both delivered in the same read. Must not be timed out or return
+        // the garbage frame.
+        let false_header_with_wrong_trailer = [RESPONSE_HEADER[0], RESPONSE_HEADER[1], 0x11, 0x22, 0x33, 0x44, 0x55];
+        let real_frame = response_packet(0, 0x30, 0x39);
+        let mut response = Vec::new();
+        response.extend_from_slice(&false_header_with_wrong_trailer);
+        response.extend_from_slice(&real_frame);
+
+        let mut port = MockPort::with_response(&response);
+        let stop = AtomicBool::new(false);
+
+        let packet = send_command(&mut port, protocol::VOLTAGE, 0, 0, &stop).unwrap();
+
+        assert_eq!(packet, real_frame);
     }
 
     #[test]
