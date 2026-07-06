@@ -27,6 +27,23 @@ function rangeSeconds(range: TimeRange): number {
   return Number.POSITIVE_INFINITY;
 }
 
+// Exponential moving average, applied for display only - the raw samples
+// still go into CSV export untouched. A cheap electronic load's current/
+// voltage sense has real ADC ripple that reads as illegible sawtooth noise
+// once the chart's Y-axis zooms in on it; this smooths the trend without
+// hiding genuine step changes (alpha=0.25 settles in ~4-5 samples).
+function smooth(data: { time: number; value: number }[], alpha = 0.25) {
+  if (data.length === 0) return data;
+  const result = new Array<{ time: number; value: number }>(data.length);
+  let ema = data[0].value;
+  result[0] = { time: data[0].time, value: ema };
+  for (let i = 1; i < data.length; i += 1) {
+    ema = alpha * data[i].value + (1 - alpha) * ema;
+    result[i] = { time: data[i].time, value: ema };
+  }
+  return result;
+}
+
 export default function TelemetryCharts(props: TelemetryChartsProps) {
   const {
     hasData,
@@ -49,15 +66,15 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
     cutoffSec === Number.POSITIVE_INFINITY ? 0 : Math.max(0, times.findIndex((t) => t >= startWindow));
 
   const voltageData = useMemo(
-    () => times.slice(fromIdx).map((t, i) => ({ time: t, value: voltage[fromIdx + i] })),
+    () => smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: voltage[fromIdx + i] }))),
     [times, voltage, fromIdx]
   );
   const currentData = useMemo(
-    () => times.slice(fromIdx).map((t, i) => ({ time: t, value: current[fromIdx + i] })),
+    () => smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: current[fromIdx + i] }))),
     [times, current, fromIdx]
   );
   const powerData = useMemo(
-    () => times.slice(fromIdx).map((t, i) => ({ time: t, value: power[fromIdx + i] })),
+    () => smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: power[fromIdx + i] }))),
     [times, power, fromIdx]
   );
 

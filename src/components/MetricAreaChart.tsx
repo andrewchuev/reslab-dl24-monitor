@@ -8,6 +8,18 @@ interface MetricAreaChartProps {
   valueFormatter?: (value: number) => string;
 }
 
+// Recharts calls this with the tight [min, max] of the data actually in
+// view. Left alone, a signal that only wobbles by a fraction of a percent
+// (typical ADC ripple on a cheap load) gets zoomed in until that ripple
+// fills the whole chart height and reads as noise. Pad the range instead of
+// hugging it.
+function paddedDomain([dataMin, dataMax]: readonly [number, number]): [number, number] {
+  if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) return [0, 1];
+  const span = dataMax - dataMin;
+  const pad = Math.max(span * 0.2, Math.abs(dataMax) * 0.03, 0.01);
+  return [dataMin - pad, dataMax + pad];
+}
+
 export default function MetricAreaChart({ data, color, unit, label, valueFormatter }: MetricAreaChartProps) {
   const gradientId = `chart-gradient-${label.replace(/\s+/g, '-').toLowerCase()}`;
   const format = valueFormatter ?? ((v: number) => v.toFixed(2));
@@ -33,7 +45,7 @@ export default function MetricAreaChart({ data, color, unit, label, valueFormatt
             tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
             tickLine={false}
             axisLine={false}
-            domain={['auto', 'auto']}
+            domain={paddedDomain}
           />
           <Tooltip
             contentStyle={{
