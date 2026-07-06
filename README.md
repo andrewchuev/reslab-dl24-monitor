@@ -1,86 +1,124 @@
-# PX-100 Load Monitor
+# DL24 Monitor
 
-A Tauri desktop app for monitoring and controlling an Atorch/PX-100 electronic
-load over a serial (USB) connection: live voltage/current/power telemetry,
-device metrics (capacity, energy, temperature, runtime), CSV export of a
-session, and a Control Center for setting the load current, cut-off voltage,
-timeout, on/off state, and resetting the accumulated counters.
+[![Release](https://img.shields.io/github/v/release/andrewchuev/reslab-dl24-monitor?label=release)](https://github.com/andrewchuev/reslab-dl24-monitor/releases/latest)
 
-**PX-100 only supports a fixed constant-current (CC) mode** — the protocol has
-no mode-switch command, so there's no CC/CV/CR/CP selector; the Control Center
-shows a static "Mode: CC" badge instead.
+A desktop instrument panel for the **Atorch DL24 / PX-100** USB electronic DC
+load: real-time voltage/current/power telemetry, capacity/energy/temperature/
+runtime metrics, CSV session export, and a Control Center for driving the
+load directly — set current, cut-off voltage, timeout, on/off, and counter
+reset.
 
-## Architecture
+## Screenshots
 
-**Backend** (`src-tauri/src`), Rust:
+| Live telemetry | Settings | Light theme |
+| --- | --- | --- |
+| ![Dashboard](docs/screenshots/screenshot_01.png) | ![Settings](docs/screenshots/screenshot_02.png) | ![Light theme](docs/screenshots/screenshot_03.png) |
 
-- `protocol.rs` — PX-100 frame format, command bytes, value decoding, and the
-  `(integer, fraction)` byte-pair encoding used by the write commands (pure
-  functions, unit tested).
-- `serial.rs` — blocking serial I/O: framing, retries, response parsing for
-  both queries (`get_val`) and writes (`set_current`, `set_cutoff`,
-  `set_timeout`, `set_onoff`, `reset_counters`). Accepts a `stop: &AtomicBool`
-  throughout so a disconnect request is noticed within ~100ms instead of only
-  between poll cycles.
-- `state.rs` — shared `AppState` holding the background polling worker and an
-  `mpsc` command queue (`WorkerEvent`/`ControlCommand`) used to send hardware
-  writes to the single thread that owns the serial port handle.
-- `commands.rs` — Tauri commands (`list_ports`, `connect_port`,
-  `disconnect_port`, `set_load_on`, `set_current`, `set_cutoff_voltage`,
-  `set_timeout_seconds`, `reset_counters`) and the `device-data` /
-  `connection-status` events.
+## Features
 
-Commands and events are annotated with `#[specta::specta]` /
-`specta::Type` (via [tauri-specta](https://github.com/specta-rs/tauri-specta))
-so `src/bindings.ts` is regenerated on every debug build — the frontend
-never hand-maintains a duplicate of the Rust payload types. `bindings.ts`
-is checked into version control so `npm run build` works without first
-running a debug build.
+- Real-time voltage / current / power, each on its own auto-scaled chart
+- Capacity (Ah), energy (Wh), temperature and runtime readouts
+- CSV export of a monitoring session
+- Control Center: load on/off, set current, set cut-off voltage, set
+  timeout, reset accumulated counters
+- Dark/light theme, configurable poll interval and chart history
+- Type-safe Rust ↔ TypeScript bridge — the UI never drifts from the backend
 
-**Frontend** (`src`), React + [shadcn/ui](https://ui.shadcn.com/) (Radix +
-Tailwind v4) + [Recharts](https://recharts.org/):
+**Note:** the PX-100 only operates in fixed constant-current (CC) mode —
+there is no mode-switch command in the protocol, so the Control Center shows
+a static "Mode: CC" badge rather than a CC/CV/CR/CP selector.
 
-- `Dashboard.tsx` — orchestrates connection state, the chart data buffer
-  and settings; talks to the backend exclusively through
-  `bindings.ts`'s `commands`/`events`.
-- `components/StatusHeader.tsx` — device identity, connection state, port
-  selection, and a gear icon opening Settings in a `Sheet`.
-- `components/HeroMetrics.tsx` / `SecondaryMetrics.tsx` — the live readouts,
-  split into primary (voltage/current/power) and secondary
-  (capacity/energy/temperature/runtime) rows.
-- `components/TelemetryCharts.tsx` / `MetricAreaChart.tsx` — three
-  independent thin-line/gradient-area charts (one per channel, each
-  auto-scaled to its own data) instead of one chart overlaying all three on a
-  shared Y-axis.
-- `components/ControlCenter.tsx` — load on/off, set current/cut-off/timeout,
-  reset counters; every action reports success/failure via a `sonner` toast.
-- `utils/settings.ts` — persists poll interval / chart refresh rate / max
-  points to `localStorage`.
+## Tech Stack
 
-Logging goes through [`tauri-plugin-log`](https://v2.tauri.app/plugin/logging/)
-(stdout + the OS log directory), replacing what used to be silently
-swallowed serial I/O errors.
+- **Backend:** Rust, [Tauri v2](https://v2.tauri.app/), [`serialport`](https://crates.io/crates/serialport), [`tauri-specta`](https://github.com/specta-rs/tauri-specta)
+- **Frontend:** React 19, TypeScript, [shadcn/ui](https://ui.shadcn.com/) (Radix + Tailwind v4), [Recharts](https://recharts.org/)
+- **Release automation:** GitHub Actions, [`tauri-action`](https://github.com/tauri-apps/tauri-action) (Windows/macOS/Linux installers)
 
-## Prerequisites
+## Protocol
+
+The PX-100 exposes a binary command protocol over a 9600 8N1 UART link
+(USB-serial or Bluetooth-serial bridge). Every exchange is host-initiated:
+the app sends a 6-byte request frame and the device replies with either a
+1-byte acknowledgement (write commands) or a 7-byte data frame (queries).
+
+**Request frame**
+
+| Offset | 0 | 1 | 2 | 3 | 4 | 5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Value | `0xB1` | `0xB2` | command | data1 | data2 | `0xB6` |
+
+**Query response frame** (commands ≥ `0x10`)
+
+| Offset | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Value | `0xCA` | `0xCB` | data1 | data2 | data3 | `0xCE` | `0xCF` |
+
+**Write acknowledgement** (commands < `0x10`): a single `0x6F` byte.
+
+### Write commands
+
+| Code | Command | data1 | data2 | Effect |
+| --- | --- | --- | --- | --- |
+| `0x01` | On/off | `1` = on, `0` = off | `0` | Enables or disables the load |
+| `0x02` | Set current | integer amps | fractional amps × 100 | Sets the CC current, e.g. 2.50 A → `(2, 50)` |
+| `0x03` | Set cut-off voltage | integer volts | fractional volts × 100 | Under-voltage protection threshold |
+| `0x04` | Set timeout | seconds (high byte) | seconds (low byte) | Auto-off timer as a 16-bit value; `0` disables it |
+| `0x05` | Reset counters | `0` | `0` | Clears the accumulated capacity/energy counters |
+
+### Query commands
+
+data1..data3 form a 24-bit big-endian integer that is divided by the scale
+factor below to get the physical value, except the two time fields, which
+are the `HH`, `MM`, `SS` bytes directly.
+
+| Code | Command | Scale | Unit |
+| --- | --- | --- | --- |
+| `0x10` | Load on/off state | ÷ 1 | `0`/`1` |
+| `0x11` | Measured voltage | ÷ 1000 | V |
+| `0x12` | Measured current | ÷ 1000 | A |
+| `0x13` | Elapsed time | — | `HH:MM:SS` |
+| `0x14` | Capacity | ÷ 1000 | Ah |
+| `0x15` | Energy | ÷ 1000 | Wh |
+| `0x16` | Temperature | ÷ 1 | °C |
+| `0x17` | Set current (readback) | ÷ 100 | A |
+| `0x18` | Set cut-off voltage (readback) | ÷ 100 | V |
+| `0x19` | Set timeout (readback) | — | `HH:MM:SS` |
+
+### Polling and reliability
+
+- `0x10`–`0x14` are queried every poll cycle; `0x15`–`0x19` are queried
+  round-robin, one per cycle, to keep each cycle short.
+- Every query/write is retried up to 3 times with a ~1.2 s response deadline
+  and a ~200 ms backoff between attempts.
+- Reads and writes watch a shared stop flag, so disconnecting doesn't have
+  to wait out an in-flight timeout.
+
+Reverse-engineered from the [`misdoro/Electronic_load_px100`](https://github.com/misdoro/Electronic_load_px100)
+protocol notes; see `dl24_reference.py` for the original Python reference
+implementation this app's Rust protocol layer is ported from.
+
+## Getting Started
+
+### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install)
-- [Node.js](https://nodejs.org/) (see `package.json` for tested versions)
+- [Node.js](https://nodejs.org/)
 - Platform build tools per the [Tauri prerequisites guide](https://v2.tauri.app/start/prerequisites/)
 
-## Development
+### Development
 
 ```sh
 npm install
 npm run tauri dev
 ```
 
-## Build
+### Build
 
 ```sh
 npm run tauri build
 ```
 
-## Testing
+### Testing
 
 ```sh
 cd src-tauri && cargo test    # protocol parsing + mocked serial framing
@@ -107,7 +145,3 @@ git push origin main:release
 `.github/workflows/release.yml` then builds installers for Windows, macOS
 (Intel + Apple Silicon) and Linux and publishes them as a GitHub Release
 tagged `app-v<version>` — no pull request involved.
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
