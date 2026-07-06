@@ -7,6 +7,7 @@ import SecondaryMetrics from './components/SecondaryMetrics';
 import StatusHeader from './components/StatusHeader';
 import TelemetryCharts from './components/TelemetryCharts';
 import type { AppSettings, DeviceMetrics, TimeRange } from './types';
+import { logAction, logError, logInfo } from './utils/log';
 import { loadSettings, saveSettings } from './utils/settings';
 
 type ConnectionStatus = Partial<ConnectionStatusEvent_Deserialize>;
@@ -61,13 +62,16 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             const list = await commands.listPorts();
             setPorts(list);
             if (list.length > 0 && !selectedPort) setSelectedPort(list[0]);
+            logAction('refresh_ports', { found: list });
         } catch (err) {
             console.error('Failed to fetch ports:', err);
+            logError('refresh_ports failed', { error: String(err) });
         }
     }
 
     async function handleConnect() {
         if (!selectedPort || connected) return;
+        logAction('connect_click', { port: selectedPort, pollIntervalMs: settings.pollIntervalMs });
         setIsConnecting(true);
         setConnectionStatus({ connected: false, stage: 'probing', attempt: 0 });
         chartDataRef.current = { startTime: null, times: [], voltage: [], current: [], power: [] };
@@ -76,10 +80,12 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             const result = await commands.connectPort(selectedPort, settings.pollIntervalMs);
             if (result.status === 'error') {
                 console.error('Connection error:', result.error);
+                logError('connect_port failed', { error: result.error });
                 setConnectionStatus({ connected: false, error: result.error, stage: 'error' });
             }
         } catch (err) {
             console.error('Connection error:', err);
+            logError('connect_port threw', { error: String(err) });
             setConnectionStatus({ connected: false, error: String(err), stage: 'error' });
         } finally {
             setIsConnecting(false);
@@ -88,14 +94,17 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
     async function handleDisconnect() {
         if (!connected) return;
+        logAction('disconnect_click');
         setIsConnecting(true);
         try {
             const result = await commands.disconnectPort();
             if (result.status === 'error') {
                 console.error('Disconnect error:', result.error);
+                logError('disconnect_port failed', { error: result.error });
             }
         } catch (err) {
             console.error('Disconnect error:', err);
+            logError('disconnect_port threw', { error: String(err) });
         } finally {
             setIsConnecting(false);
         }
@@ -109,9 +118,17 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     };
 
     const resetChart = () => {
+        logAction('reset_chart_click', { pointsDiscarded: chartDataRef.current.times.length });
         chartDataRef.current = { startTime: null, times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         setRenderTick((t) => t + 1);
+    };
+
+    const togglePause = () => {
+        setIsPaused((v) => {
+            logAction(v ? 'resume_click' : 'pause_click');
+            return !v;
+        });
     };
 
     const exportCsv = () => {
@@ -130,6 +147,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        logAction('export_csv_click', { points: times.length });
     };
 
     const chartSnapshot = useMemo(
@@ -150,6 +168,11 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     useEffect(() => {
         saveSettings(settings);
     }, [settings]);
+
+    function handleSettingsChange(next: AppSettings) {
+        logAction('settings_change', next);
+        setSettings(next);
+    }
 
     useEffect(() => {
         let unsubDevice: (() => void) | undefined;
@@ -191,6 +214,12 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
             unsubConn = await events.connectionStatusEvent.listen((event) => {
                 const st = event.payload;
+                logInfo('connection_status', {
+                    stage: st.stage,
+                    connected: st.connected,
+                    attempt: st.attempt,
+                    error: st.error,
+                });
                 setConnectionStatus(st);
                 setConnected(st.connected);
                 setIsConnecting(st.stage === 'probing');
@@ -220,7 +249,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                         setThemeMode={setThemeMode}
                         status={connectionStatus}
                         settings={settings}
-                        onSettingsChange={setSettings}
+                        onSettingsChange={handleSettingsChange}
                     />
                 </section>
 
@@ -239,7 +268,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                             timeRange={timeRange}
                             onTimeRangeChange={setTimeRange}
                             isPaused={isPaused}
-                            onPauseResume={() => setIsPaused((v) => !v)}
+                            onPauseResume={togglePause}
                             onReset={resetChart}
                             onExportCsv={exportCsv}
                         />

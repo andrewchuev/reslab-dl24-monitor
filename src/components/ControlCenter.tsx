@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { commands } from '../bindings';
 import type { DeviceMetrics } from '../types';
+import { logAction, logError } from '../utils/log';
 
 interface ControlCenterProps {
   connected: boolean;
@@ -26,15 +27,18 @@ interface ControlCenterProps {
 
 type CommandResult = Awaited<ReturnType<typeof commands.resetCounters>>;
 
-async function runCommand(action: () => Promise<CommandResult>, successMessage: string) {
+async function runCommand(label: string, action: () => Promise<CommandResult>, successMessage: string) {
+  logAction(`control_center.${label}`);
   try {
     const result = await action();
     if (result.status === 'error') {
+      logError(`control_center.${label} failed`, { error: result.error });
       toast.error(result.error);
     } else {
       toast.success(successMessage);
     }
   } catch (err) {
+    logError(`control_center.${label} threw`, { error: String(err) });
     toast.error(String(err));
   }
 }
@@ -60,14 +64,18 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
 
   const handleToggleLoad = () =>
     withPending('toggle', () =>
-      runCommand(() => commands.setLoadOn(!data.isOn), data.isOn ? 'Load switched off' : 'Load switched on')
+      runCommand(
+        `set_load_on(${!data.isOn})`,
+        () => commands.setLoadOn(!data.isOn),
+        data.isOn ? 'Load switched off' : 'Load switched on'
+      )
     );
 
   const handleSetCurrent = () => {
     const amps = parseFloat(currentInput);
     if (Number.isNaN(amps)) return;
     withPending('current', () =>
-      runCommand(() => commands.setCurrent(amps), `Current set to ${amps.toFixed(2)} A`)
+      runCommand(`set_current(${amps})`, () => commands.setCurrent(amps), `Current set to ${amps.toFixed(2)} A`)
     );
   };
 
@@ -75,7 +83,11 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
     const volts = parseFloat(cutoffInput);
     if (Number.isNaN(volts)) return;
     withPending('cutoff', () =>
-      runCommand(() => commands.setCutoffVoltage(volts), `Cut-off set to ${volts.toFixed(2)} V`)
+      runCommand(
+        `set_cutoff(${volts})`,
+        () => commands.setCutoffVoltage(volts),
+        `Cut-off set to ${volts.toFixed(2)} V`
+      )
     );
   };
 
@@ -83,12 +95,16 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
     const minutes = parseFloat(timeoutInput);
     if (Number.isNaN(minutes)) return;
     withPending('timeout', () =>
-      runCommand(() => commands.setTimeoutSeconds(Math.round(minutes * 60)), `Timeout set to ${minutes} min`)
+      runCommand(
+        `set_timeout(${minutes}min)`,
+        () => commands.setTimeoutSeconds(Math.round(minutes * 60)),
+        `Timeout set to ${minutes} min`
+      )
     );
   };
 
   const handleReset = () =>
-    withPending('reset', () => runCommand(() => commands.resetCounters(), 'Counters reset'));
+    withPending('reset', () => runCommand('reset_counters', () => commands.resetCounters(), 'Counters reset'));
 
   return (
     <div className="rounded-xl border bg-card p-4">

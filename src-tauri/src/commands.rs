@@ -89,6 +89,20 @@ fn emit_device(app: &AppHandle, ds: &DataStore) {
     let power = ds.voltage * ds.current;
     let power_str = format!("{power:.2}");
 
+    log::debug!(
+        "telemetry: V={:.4} A={:.4} W={power_str} Ah={:.4} Wh={:.4} tempC={:.2} on={} time={} setI={:.2} setV={:.2} timer={}",
+        ds.voltage,
+        ds.current,
+        ds.cap_ah,
+        ds.cap_wh,
+        ds.temp,
+        ds.is_on,
+        ds.time,
+        ds.set_current,
+        ds.set_voltage,
+        ds.set_timer,
+    );
+
     let _ = DeviceDataEvent {
         kind: "status",
         voltage_v: ds.voltage,
@@ -292,13 +306,35 @@ pub fn connect_port(
 /// it only fails if the Tauri command already gave up waiting (recv_timeout
 /// elapsed), in which case there's no one left to tell.
 fn handle_control_command(port: &mut dyn serialport::SerialPort, cmd: ControlCommand, stop: &std::sync::atomic::AtomicBool) {
-    let (result, reply_tx) = match cmd {
-        ControlCommand::SetOnOff(on, reply) => (serial::set_onoff(port, on, stop), reply),
-        ControlCommand::SetCurrent(amps, reply) => (serial::set_current(port, amps, stop), reply),
-        ControlCommand::SetCutoff(volts, reply) => (serial::set_cutoff(port, volts, stop), reply),
-        ControlCommand::SetTimeout(secs, reply) => (serial::set_timeout(port, secs, stop), reply),
-        ControlCommand::ResetCounters(reply) => (serial::reset_counters(port, stop), reply),
+    let (description, result, reply_tx) = match cmd {
+        ControlCommand::SetOnOff(on, reply) => {
+            (format!("set_onoff({on})"), serial::set_onoff(port, on, stop), reply)
+        }
+        ControlCommand::SetCurrent(amps, reply) => (
+            format!("set_current({amps:.2}A)"),
+            serial::set_current(port, amps, stop),
+            reply,
+        ),
+        ControlCommand::SetCutoff(volts, reply) => (
+            format!("set_cutoff({volts:.2}V)"),
+            serial::set_cutoff(port, volts, stop),
+            reply,
+        ),
+        ControlCommand::SetTimeout(secs, reply) => (
+            format!("set_timeout({secs}s)"),
+            serial::set_timeout(port, secs, stop),
+            reply,
+        ),
+        ControlCommand::ResetCounters(reply) => {
+            ("reset_counters()".to_string(), serial::reset_counters(port, stop), reply)
+        }
     };
+
+    match &result {
+        Ok(()) => log::debug!("control command {description} succeeded"),
+        Err(e) => log::warn!("control command {description} failed: {e}"),
+    }
+
     let _ = reply_tx.send(result.map_err(|e| e.to_string()));
 }
 

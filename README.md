@@ -97,6 +97,20 @@ Reverse-engineered from the [`misdoro/Electronic_load_px100`](https://github.com
 protocol notes; see `dl24_reference.py` for the original Python reference
 implementation this app's Rust protocol layer is ported from.
 
+## Logs
+
+Every launch writes a fresh `session-YYYYMMDD-HHMMSS.log` (UTC) to the app's
+log directory - decoded telemetry per poll cycle, every serial retry/failure,
+and every user action (connect/disconnect, Control Center commands, chart
+controls, settings changes), so a session can be replayed after the fact
+instead of only reasoning from what's currently on screen.
+
+| OS | Location |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\dev.reslab.dl24monitor\logs\` |
+| macOS | `~/Library/Logs/dev.reslab.dl24monitor/` |
+| Linux | `~/.local/share/dev.reslab.dl24monitor/logs/` |
+
 ## Getting Started
 
 ### Prerequisites

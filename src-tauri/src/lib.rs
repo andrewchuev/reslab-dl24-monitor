@@ -1,12 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod logging;
 mod protocol;
 mod serial;
 mod state;
 
 use commands::{ConnectionStatusEvent, DeviceDataEvent};
 use state::AppState;
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 pub fn run() {
@@ -33,7 +35,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
+                // Third-party crates stay quiet at Info; our own code (backend
+                // modules + frontend logs forwarded through the "webview"
+                // target) logs at Debug so a session file has enough detail
+                // to diagnose issues like "the chart looks wrong" after the
+                // fact, without a firehose of dependency noise.
                 .level(log::LevelFilter::Info)
+                .level_for("tauri_app_lib", log::LevelFilter::Debug)
+                .level_for(tauri_plugin_log::WEBVIEW_TARGET, log::LevelFilter::Debug)
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some(logging::session_log_file_name()),
+                    }),
+                ])
                 .build(),
         )
         .invoke_handler(specta_builder.invoke_handler())
