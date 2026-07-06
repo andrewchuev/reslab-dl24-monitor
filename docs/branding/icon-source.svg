@@ -1,0 +1,17 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gaugeGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="50%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#0b0e14"/>
+
+  <path d="M272 752 A340 340 0 1 1 752 752"
+        fill="none" stroke="url(#gaugeGrad)" stroke-width="64" stroke-linecap="round"/>
+
+  <polygon points="542,212 242,572 512,572 482,812 782,452 512,452"
+           fill="#f8fafc"/>
+</svg>
