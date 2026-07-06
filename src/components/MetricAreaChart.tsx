@@ -17,7 +17,12 @@ function paddedDomain([dataMin, dataMax]: readonly [number, number]): [number, n
   if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) return [0, 1];
   const span = dataMax - dataMin;
   const pad = Math.max(span * 0.2, Math.abs(dataMax) * 0.03, 0.01);
-  return [dataMin - pad, dataMax + pad];
+  // Rounded to kill floating-point noise (e.g. 19.7 - 0.03 = 19.669999999999998):
+  // Recharts doesn't "nice"-round a domain that comes from a function, so
+  // without this the raw un-rounded endpoint can end up as a tick label -
+  // and with the axis label column only ~38px wide, only the tail digits of
+  // a 17-character float end up visible, reading as unrelated garbage.
+  return [Number((dataMin - pad).toFixed(6)), Number((dataMax + pad).toFixed(6))];
 }
 
 export default function MetricAreaChart({ data, color, unit, label, valueFormatter }: MetricAreaChartProps) {
@@ -41,11 +46,12 @@ export default function MetricAreaChart({ data, color, unit, label, valueFormatt
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
           <XAxis dataKey="time" hide />
           <YAxis
-            width={38}
+            width={44}
             tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
             tickLine={false}
             axisLine={false}
             domain={paddedDomain}
+            tickFormatter={(value: number) => format(value)}
           />
           <Tooltip
             contentStyle={{
