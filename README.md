@@ -10,9 +10,9 @@ reset.
 
 ## Screenshots
 
-| Live telemetry | Settings | Light theme |
-| --- | --- | --- |
-| ![Dashboard](docs/screenshots/screenshot_01.png) | ![Settings](docs/screenshots/screenshot_02.png) | ![Light theme](docs/screenshots/screenshot_03.png) |
+| Live telemetry | Settings | Light theme | Compact layout |
+| --- | --- | --- | --- |
+| ![Dashboard](docs/screenshots/screenshot_01.png) | ![Settings](docs/screenshots/screenshot_02.png) | ![Light theme](docs/screenshots/screenshot_03.png) | ![Compact layout](docs/screenshots/screenshot_04.png) |
 
 ## Features
 
