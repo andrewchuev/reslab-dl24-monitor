@@ -1,0 +1,127 @@
+//! PX-100 electronic load serial protocol: frame layout, commands and value decoding.
+//! Reference: https://github.com/misdoro/Electronic_load_px100/blob/master/protocol_PX-100_2_70.md
+
+pub const HEADER: [u8; 2] = [0xB1, 0xB2];
+pub const TRAILER: u8 = 0xB6;
+pub const RESPONSE_HEADER: [u8; 2] = [0xCA, 0xCB];
+pub const RESPONSE_TRAILER: [u8; 2] = [0xCE, 0xCF];
+pub const ACK: u8 = 0x6F;
+
+// Write commands (<0x10), device replies with a single ACK byte
+pub const CMD_ONOFF: u8 = 0x01;
+pub const CMD_SETCURRENT: u8 = 0x02;
+pub const CMD_SETCUTOFF: u8 = 0x03;
+pub const CMD_SETTIMEOUT: u8 = 0x04;
+pub const CMD_RESET: u8 = 0x05;
+
+// Query commands (0x1*)
+pub const ISON: u8 = 0x10;
+pub const VOLTAGE: u8 = 0x11;
+pub const CURRENT: u8 = 0x12;
+pub const TIME_CMD: u8 = 0x13;
+pub const CAP_AH: u8 = 0x14;
+pub const CAP_WH: u8 = 0x15;
+pub const TEMP: u8 = 0x16;
+pub const LIM_CURR: u8 = 0x17;
+pub const LIM_VOLT: u8 = 0x18;
+pub const TIMER: u8 = 0x19;
+
+/// Polled every cycle.
+pub const FREQ_VALS: [u8; 5] = [ISON, VOLTAGE, CURRENT, TIME_CMD, CAP_AH];
+/// Polled one-at-a-time, round-robin, to keep the poll cycle short.
+pub const AUX_VALS: [u8; 5] = [CAP_WH, TEMP, LIM_CURR, LIM_VOLT, TIMER];
+
+#[derive(Debug)]
+pub enum Val {
+    Num(f64),
+    Time(String),
+}
+
+/// Scale factor to convert a raw 24-bit protocol value into its physical unit.
+pub fn mul(cmd: u8) -> f64 {
+    match cmd {
+        ISON => 1.0,
+        VOLTAGE | CURRENT | CAP_AH | CAP_WH => 1000.0,
+        TEMP => 1.0,
+        LIM_CURR | LIM_VOLT => 100.0,
+        _ => 1000.0,
+    }
+}
+
+/// Parses a "HH:MM:SS" duration string into total seconds.
+/// u32 is plenty (max HH:99 -> ~136 years) and, unlike u64, exports safely to a TS `number`.
+pub fn runtime_seconds(time: &str) -> u32 {
+    let parts: Vec<&str> = time.split(':').collect();
+    if parts.len() != 3 {
+        return 0;
+    }
+    let hh = parts[0].parse::<u32>().unwrap_or(0);
+    let mm = parts[1].parse::<u32>().unwrap_or(0);
+    let ss = parts[2].parse::<u32>().unwrap_or(0);
+    hh * 3600 + mm * 60 + ss
+}
+
+pub fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Encodes a value as the protocol's (integer, 2-digit fraction) byte pair, e.g. `2.5 -> (2, 50)`.
+/// Used for set-current/set-cutoff commands. Negative input clamps to 0; out-of-byte-range
+/// magnitudes clamp rather than wrap, since silently sending a wrapped value to the device
+/// would be worse than clamping to its nearest representable one.
+pub fn float_to_int_frac(value: f64) -> (u8, u8) {
+    let clamped = value.max(0.0);
+    let int_part = clamped.trunc().min(u8::MAX as f64) as u8;
+    let frac_part = (clamped.fract() * 100.0).round().min(99.0) as u8;
+    (int_part, frac_part)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_seconds_parses_hh_mm_ss() {
+        assert_eq!(runtime_seconds("01:02:03"), 3723);
+        assert_eq!(runtime_seconds("00:00:00"), 0);
+    }
+
+    #[test]
+    fn runtime_seconds_rejects_malformed_input() {
+        assert_eq!(runtime_seconds(""), 0);
+        assert_eq!(runtime_seconds("12:34"), 0);
+        assert_eq!(runtime_seconds("aa:bb:cc"), 0);
+    }
+
+    #[test]
+    fn find_subslice_locates_needle() {
+        let haystack = [0x01, 0xCA, 0xCB, 0x02, 0x03];
+        assert_eq!(find_subslice(&haystack, &RESPONSE_HEADER), Some(1));
+        assert_eq!(find_subslice(&haystack, &[0xFF]), None);
+        assert_eq!(find_subslice(&haystack, &[]), Some(0));
+    }
+
+    #[test]
+    fn mul_matches_protocol_scale_factors() {
+        assert_eq!(mul(ISON), 1.0);
+        assert_eq!(mul(VOLTAGE), 1000.0);
+        assert_eq!(mul(LIM_CURR), 100.0);
+        assert_eq!(mul(TEMP), 1.0);
+    }
+
+    #[test]
+    fn float_to_int_frac_encodes_integer_and_two_digit_fraction() {
+        assert_eq!(float_to_int_frac(2.5), (2, 50));
+        assert_eq!(float_to_int_frac(0.0), (0, 0));
+        assert_eq!(float_to_int_frac(12.34), (12, 34));
+    }
+
+    #[test]
+    fn float_to_int_frac_clamps_out_of_range_input() {
+        assert_eq!(float_to_int_frac(-5.0), (0, 0));
+        assert_eq!(float_to_int_frac(300.0), (255, 0));
+    }
+}
