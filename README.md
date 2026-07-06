@@ -16,6 +16,10 @@ reset.
 
 ## Features
 
+- Automatic port detection: remembers the last port that worked and tries
+  it first; otherwise (or if it's gone) probes every available port from
+  the highest number down, since the DL24 typically enumerates as the
+  last or second-to-last serial port on the system
 - Real-time voltage / current / power, each on its own auto-scaled chart
 - Capacity (Ah), energy (Wh), temperature and runtime readouts
 - CSV export of a monitoring session

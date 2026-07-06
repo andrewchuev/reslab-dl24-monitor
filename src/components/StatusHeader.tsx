@@ -19,6 +19,7 @@ interface StatusHeaderProps {
   onConnectToggle: () => void;
   connected: boolean;
   isConnecting: boolean;
+  isAutoDetecting: boolean;
   themeMode: 'light' | 'dark';
   setThemeMode: (mode: 'light' | 'dark') => void;
   status: ConnectionStatus;
@@ -26,9 +27,10 @@ interface StatusHeaderProps {
   onSettingsChange: (next: AppSettings) => void;
 }
 
-function stageLabel(status: ConnectionStatus): string {
+function stageLabel(status: ConnectionStatus, selectedPort: string | null): string {
   if (status.stage === 'probing') {
-    return `Probing (${status.attempt ?? 0}/${status.maxAttempts ?? 0})`;
+    const port = selectedPort ? ` ${selectedPort}` : '';
+    return `Probing${port} (${status.attempt ?? 0}/${status.maxAttempts ?? 0})`;
   }
   if (status.stage === 'connected') return 'Connected';
   if (status.stage === 'disconnected') return 'Disconnected';
@@ -47,12 +49,15 @@ export default function StatusHeader(props: StatusHeaderProps) {
     onConnectToggle,
     connected,
     isConnecting,
+    isAutoDetecting,
     themeMode,
     setThemeMode,
     status,
     settings,
     onSettingsChange,
   } = props;
+
+  const busy = isConnecting || isAutoDetecting;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">
@@ -65,13 +70,13 @@ export default function StatusHeader(props: StatusHeaderProps) {
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className={`size-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-muted-foreground/50'}`} />
             <Bluetooth className="size-3" />
-            <span>{stageLabel(status)}</span>
+            <span>{isAutoDetecting ? `Detecting device… (${stageLabel(status, selectedPort)})` : stageLabel(status, selectedPort)}</span>
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || isConnecting}>
+        <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
           <SelectTrigger className="h-9 w-[150px]">
             <SelectValue placeholder="Select port" />
           </SelectTrigger>
@@ -84,20 +89,28 @@ export default function StatusHeader(props: StatusHeaderProps) {
           </SelectContent>
         </Select>
 
-        <Button variant="outline" size="icon" className="size-9" onClick={onRefresh} disabled={isConnecting}>
+        <Button variant="outline" size="icon" className="size-9" onClick={onRefresh} disabled={busy}>
           <RefreshCw className="size-4" />
         </Button>
 
         <Button
           variant={connected ? 'destructive' : 'default'}
           onClick={onConnectToggle}
-          disabled={isConnecting || (!selectedPort && !connected)}
+          disabled={busy || (!selectedPort && !connected)}
         >
-          {isConnecting && <Loader2 className="size-4 animate-spin" />}
-          {isConnecting ? (connected ? 'Disconnecting…' : 'Connecting…') : connected ? 'Disconnect' : 'Connect'}
+          {busy && <Loader2 className="size-4 animate-spin" />}
+          {isAutoDetecting
+            ? 'Detecting…'
+            : isConnecting
+              ? connected
+                ? 'Disconnecting…'
+                : 'Connecting…'
+              : connected
+                ? 'Disconnect'
+                : 'Connect'}
         </Button>
 
-        {status.error && <Badge variant="destructive">{status.error}</Badge>}
+        {status.error && !isAutoDetecting && <Badge variant="destructive">{status.error}</Badge>}
 
         <Sheet>
           <SheetTrigger asChild>

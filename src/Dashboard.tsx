@@ -7,8 +7,12 @@ import SecondaryMetrics from './components/SecondaryMetrics';
 import StatusHeader from './components/StatusHeader';
 import TelemetryCharts from './components/TelemetryCharts';
 import type { AppSettings, DeviceMetrics, TimeRange } from './types';
+import { loadLastPort, saveLastPort } from './utils/lastPort';
 import { logAction, logError, logInfo } from './utils/log';
+import { buildCandidateQueue } from './utils/ports';
 import { loadSettings, saveSettings } from './utils/settings';
+
+const FAILED_STAGES = new Set(['probe_failed', 'error', 'validation']);
 
 type ConnectionStatus = Partial<ConnectionStatusEvent_Deserialize>;
 
@@ -37,6 +41,10 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     const [isConnecting, setIsConnecting] = useState(false);
     const [ports, setPorts] = useState<string[]>([]);
     const [selectedPort, setSelectedPort] = useState<string | null>(null);
+    // Remaining candidate ports to try, in order, while auto-detecting the
+    // device on startup. null means "not auto-detecting" (idle, or a manual
+    // connect is in progress).
+    const [autoDetectQueue, setAutoDetectQueue] = useState<string[] | null>(null);
     const [hasData, setHasData] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
     const [timeRange, setTimeRange] = useState<TimeRange>('5m');
@@ -55,29 +63,35 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     });
 
     const lastRenderRef = useRef(0);
+    // Guards the auto-detect kick-off so it only ever runs once, even though
+    // the effect that triggers it (after the event listeners are ready) can
+    // re-run later when settings change.
+    const autoDetectStartedRef = useRef(false);
 
     // ==================== Handlers ====================
     async function fetchPorts() {
         try {
             const list = await commands.listPorts();
             setPorts(list);
-            if (list.length > 0 && !selectedPort) setSelectedPort(list[0]);
             logAction('refresh_ports', { found: list });
+            return list;
         } catch (err) {
             console.error('Failed to fetch ports:', err);
             logError('refresh_ports failed', { error: String(err) });
+            return [];
         }
     }
 
-    async function handleConnect() {
-        if (!selectedPort || connected) return;
-        logAction('connect_click', { port: selectedPort, pollIntervalMs: settings.pollIntervalMs });
+    async function handleConnect(portOverride?: string) {
+        const port = portOverride ?? selectedPort;
+        if (!port || connected) return;
+        logAction('connect_click', { port, pollIntervalMs: settings.pollIntervalMs });
         setIsConnecting(true);
         setConnectionStatus({ connected: false, stage: 'probing', attempt: 0 });
         chartDataRef.current = { startTime: null, times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         try {
-            const result = await commands.connectPort(selectedPort, settings.pollIntervalMs);
+            const result = await commands.connectPort(port, settings.pollIntervalMs);
             if (result.status === 'error') {
                 console.error('Connection error:', result.error);
                 logError('connect_port failed', { error: result.error });
@@ -95,6 +109,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     async function handleDisconnect() {
         if (!connected) return;
         logAction('disconnect_click');
+        setAutoDetectQueue(null);
         setIsConnecting(true);
         try {
             const result = await commands.disconnectPort();
@@ -161,9 +176,37 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     );
 
     // ==================== Effects ====================
+    // Advances to the next candidate port on failure, stops on success.
     useEffect(() => {
-        fetchPorts();
-    }, []);
+        if (autoDetectQueue === null) return;
+        const stage = connectionStatus.stage;
+
+        if (stage === 'connected') {
+            logAction('auto_detect_success', { port: selectedPort });
+            setAutoDetectQueue(null);
+            return;
+        }
+
+        if (stage && FAILED_STAGES.has(stage)) {
+            if (autoDetectQueue.length === 0) {
+                logAction('auto_detect_exhausted');
+                setAutoDetectQueue(null);
+                return;
+            }
+            const [next, ...rest] = autoDetectQueue;
+            setAutoDetectQueue(rest);
+            setSelectedPort(next);
+            handleConnect(next);
+        }
+    }, [connectionStatus]);
+
+    // Remembers whichever port last connected successfully, regardless of
+    // whether that came from auto-detect or a manual pick.
+    useEffect(() => {
+        if (connectionStatus.stage === 'connected' && selectedPort) {
+            saveLastPort(selectedPort);
+        }
+    }, [connectionStatus.stage, selectedPort]);
 
     useEffect(() => {
         saveSettings(settings);
@@ -225,6 +268,27 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                 setIsConnecting(st.stage === 'probing');
                 if (st.error) console.error('Connection error:', st.error);
             });
+
+            // Only start auto-detecting once both listeners above are
+            // actually attached - kicking off a connect attempt any earlier
+            // risks the resulting connection-status events firing before
+            // anything is listening for them, which would leave the scan
+            // stuck forever waiting for a status change that already
+            // happened. Guarded by a ref so re-running this effect later
+            // (e.g. when settings change) doesn't restart the scan.
+            if (!autoDetectStartedRef.current) {
+                autoDetectStartedRef.current = true;
+                const list = await fetchPorts();
+                if (list.length > 0) {
+                    const lastPort = loadLastPort();
+                    const queue = buildCandidateQueue(list, lastPort);
+                    const [first, ...rest] = queue;
+                    setSelectedPort(first);
+                    setAutoDetectQueue(rest);
+                    logAction('auto_detect_start', { candidates: queue, lastPort });
+                    handleConnect(first);
+                }
+            }
         })();
 
         return () => {
@@ -242,9 +306,10 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                         selectedPort={selectedPort}
                         onSelectPort={setSelectedPort}
                         onRefresh={fetchPorts}
-                        onConnectToggle={connected ? handleDisconnect : handleConnect}
+                        onConnectToggle={connected ? handleDisconnect : () => handleConnect()}
                         connected={connected}
                         isConnecting={isConnecting}
+                        isAutoDetecting={autoDetectQueue !== null}
                         themeMode={themeMode}
                         setThemeMode={setThemeMode}
                         status={connectionStatus}
