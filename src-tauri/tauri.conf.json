@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DL24 Monitor",
+  "productName": "Reslab DL24 Monitor",
   "version": "../package.json",
   "identifier": "dev.reslab.dl24monitor",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "DL24 Monitor",
+        "title": "Reslab DL24 Monitor",
         "width": 800,
         "height": 600
       }

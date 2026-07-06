@@ -61,7 +61,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
           <Cpu className="size-5" />
         </div>
         <div>
-          <div className="text-sm font-semibold leading-tight">Atorch PX-100</div>
+          <div className="text-sm font-semibold leading-tight">Atorch DL24</div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className={`size-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-muted-foreground/50'}`} />
             <Bluetooth className="size-3" />

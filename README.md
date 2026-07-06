@@ -1,4 +1,4 @@
-# DL24 Monitor
+# Reslab DL24 Monitor
 
 [![Release](https://img.shields.io/github/v/release/andrewchuev/reslab-dl24-monitor?label=release)](https://github.com/andrewchuev/reslab-dl24-monitor/releases/latest)
 
