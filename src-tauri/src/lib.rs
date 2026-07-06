@@ -43,6 +43,13 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .level_for("tauri_app_lib", log::LevelFilter::Debug)
                 .level_for(tauri_plugin_log::WEBVIEW_TARGET, log::LevelFilter::Debug)
+                // Default cap is 40KB with RotationStrategy::KeepOne, which
+                // *deletes and restarts* the file once hit - debug-level
+                // telemetry logged every poll cycle blows past that in
+                // under 10 minutes, silently wiping exactly the session
+                // history a long-running diagnostic session needs. 20MB
+                // covers many hours before that's even a concern.
+                .max_file_size(20_000_000)
                 .targets([
                     Target::new(TargetKind::Stdout),
                     Target::new(TargetKind::LogDir {
