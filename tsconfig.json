@@ -14,8 +14,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Path aliases (shadcn/ui) */
-    "baseUrl": ".",
+    /* Path aliases (shadcn/ui) - resolved relative to this file since
+       moduleResolution "bundler" doesn't need baseUrl (deprecated in TS 6.0) */
     "paths": {
       "@/*": ["./src/*"]
     },
