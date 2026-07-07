@@ -25,6 +25,7 @@
   "settingsPanel": {
     "pollInterval": "Poll interval: {{value}} ms",
     "chartRefresh": "Chart refresh throttle: {{value}} ms",
+    "chartRefreshHint": "At the current poll interval, the chart updates about every {{value}} ms.",
     "maxPoints": "Max points drawn per chart: {{value}}",
     "maxPointsHint": "Caps chart rendering only - the full session is always kept for CSV export."
   },
@@ -39,7 +40,6 @@
   },
   "telemetry": {
     "heading": "Real-time Telemetry",
-    "live": "Live",
     "paused": "Paused",
     "rangeAll": "All",
     "emptyState": "Connect to the device to start monitoring",

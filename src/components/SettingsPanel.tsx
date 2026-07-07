@@ -11,6 +11,13 @@ interface SettingsPanelProps {
 export default function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
   const { t } = useTranslation();
 
+  // New readings arrive once per poll cycle, so the throttle can only ever
+  // skip whole cycles - it rounds up to the next multiple of the poll
+  // interval rather than smoothly scaling with its own slider value. Showing
+  // that resulting cadence directly (instead of an "active"/"inactive" label)
+  // avoids implying a gradual effect where the real one is a step function.
+  const effectiveRefreshMs = Math.ceil(settings.chartRefreshMs / settings.pollIntervalMs) * settings.pollIntervalMs;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
@@ -26,6 +33,9 @@ export default function SettingsPanel({ settings, onChange }: SettingsPanelProps
 
       <div className="flex flex-col gap-2">
         <Label>{t('settingsPanel.chartRefresh', { value: settings.chartRefreshMs })}</Label>
+        <p className="text-xs text-muted-foreground">
+          {t('settingsPanel.chartRefreshHint', { value: effectiveRefreshMs })}
+        </p>
         <Slider
           value={[settings.chartRefreshMs]}
           min={100}
