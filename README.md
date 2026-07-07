@@ -21,14 +21,17 @@ reset.
   the highest number down, since the DL24 typically enumerates as the
   last or second-to-last serial port on the system
 - Real-time voltage / current / power, each on its own auto-scaled chart
-  with a real elapsed-time axis and full-session history (the "30s/5m/15m"
-  range only zooms the live view; "All" and CSV export always cover the
-  whole session, not just what's currently rendered)
+  with a real wall-clock time axis (not time elapsed since the app was
+  opened) and full-session history (the "30s/5m/15m" range only zooms the
+  live view; "All" and exports always cover the whole session, not just
+  what's currently rendered)
 - Capacity (Ah), energy (Wh), temperature and runtime readouts
-- CSV export of a monitoring session, full precision, unbounded by the
+- CSV export of a monitoring session: a real timestamp plus elapsed
+  seconds per row, full-precision voltage/current/power, unbounded by the
   chart's render settings
-- Excel (.xlsx) export with the same full-precision data plus native,
-  editable voltage/current/power charts on their own sheet
+- Excel (.xlsx) export with the same session, V/A/W rounded to 3 decimals
+  for readability, plus native editable charts plotted against real time
+  on their own sheet
 - Control Center: load on/off, set current, set cut-off voltage, set
   timeout, reset accumulated counters
 - Dark/light theme, configurable poll interval and chart history

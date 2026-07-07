@@ -5,7 +5,7 @@
 
 use anyhow::{ensure, Context, Result};
 use rust_xlsxwriter::{
-    Chart, ChartFormat, ChartLine, ChartMarker, ChartType, Color, Format, Workbook,
+    Chart, ChartFormat, ChartLine, ChartMarker, ChartType, Color, ExcelDateTime, Format, Workbook,
 };
 
 const SHEET_DATA: &str = "Telemetry";
@@ -20,29 +20,36 @@ const COLOR_POWER: u32 = 0xFBBF24;
 /// unusably slow Excel file - well past any realistic capacity test.
 const MAX_EXPORT_ROWS: usize = 200_000;
 
-/// Builds a workbook with a `Telemetry` data sheet (time, elapsed duration,
-/// voltage, current, power) and a `Charts` sheet with one scatter-line chart
-/// per metric plotted against elapsed seconds, and saves it to `path`.
+/// Builds a workbook with a `Telemetry` data sheet (real timestamp, elapsed
+/// seconds, voltage, current, power) and a `Charts` sheet with one
+/// scatter-line chart per metric plotted against wall-clock time, and saves
+/// it to `path`.
+///
+/// `timestamps_ms` are Unix epoch milliseconds (i.e. `Date.now()` from the
+/// frontend) - the point in time each sample was actually taken, not time
+/// elapsed since the session started.
 pub fn write_session_xlsx(
     path: &str,
-    times: &[f64],
+    timestamps_ms: &[f64],
     voltage: &[f64],
     current: &[f64],
     power: &[f64],
 ) -> Result<()> {
     ensure!(
-        times.len() == voltage.len() && times.len() == current.len() && times.len() == power.len(),
+        timestamps_ms.len() == voltage.len()
+            && timestamps_ms.len() == current.len()
+            && timestamps_ms.len() == power.len(),
         "mismatched column lengths: time={}, voltage={}, current={}, power={}",
-        times.len(),
+        timestamps_ms.len(),
         voltage.len(),
         current.len(),
         power.len()
     );
-    ensure!(!times.is_empty(), "no data to export");
+    ensure!(!timestamps_ms.is_empty(), "no data to export");
 
     let mut workbook = Workbook::new();
-    write_data_sheet(&mut workbook, times, voltage, current, power)?;
-    write_charts_sheet(&mut workbook, times.len() as u32)?;
+    write_data_sheet(&mut workbook, timestamps_ms, voltage, current, power)?;
+    write_charts_sheet(&mut workbook, timestamps_ms.len() as u32)?;
 
     workbook
         .save(path)
@@ -51,36 +58,42 @@ pub fn write_session_xlsx(
 
 fn write_data_sheet(
     workbook: &mut Workbook,
-    times: &[f64],
+    timestamps_ms: &[f64],
     voltage: &[f64],
     current: &[f64],
     power: &[f64],
 ) -> Result<()> {
     let header_format = Format::new().set_bold();
-    let seconds_format = Format::new().set_num_format("0.000");
-    let duration_format = Format::new().set_num_format("[h]:mm:ss");
-    let metric_format = Format::new().set_num_format("0.000000");
+    let timestamp_format = Format::new().set_num_format("yyyy-mm-dd hh:mm:ss");
+    let elapsed_format = Format::new().set_num_format("0.000");
+    // Rounded for readability - the CSV export is still full precision for
+    // anyone who needs it.
+    let metric_format = Format::new().set_num_format("0.000");
 
     let sheet = workbook.add_worksheet().set_name(SHEET_DATA)?;
     sheet.write_row_with_format(
         0,
         0,
-        ["Time (s)", "Elapsed", "Voltage (V)", "Current (A)", "Power (W)"],
+        ["Timestamp", "Elapsed (s)", "Voltage (V)", "Current (A)", "Power (W)"],
         &header_format,
     )?;
 
-    sheet.write_column_with_format(DATA_FIRST_ROW, 0, times.iter().copied(), &seconds_format)?;
-    sheet.write_column_with_format(
-        DATA_FIRST_ROW,
-        1,
-        times.iter().map(|t| t / 86_400.0),
-        &duration_format,
-    )?;
+    let timestamps = timestamps_ms
+        .iter()
+        .map(|&ms| ExcelDateTime::from_timestamp((ms / 1000.0) as i64))
+        .collect::<Result<Vec<_>, _>>()
+        .context("sample timestamp out of Excel's representable date range")?;
+    sheet.write_column_with_format(DATA_FIRST_ROW, 0, timestamps, &timestamp_format)?;
+
+    let first_ms = timestamps_ms[0];
+    let elapsed_s = timestamps_ms.iter().map(|&ms| (ms - first_ms) / 1000.0);
+    sheet.write_column_with_format(DATA_FIRST_ROW, 1, elapsed_s, &elapsed_format)?;
+
     sheet.write_column_with_format(DATA_FIRST_ROW, 2, voltage.iter().copied(), &metric_format)?;
     sheet.write_column_with_format(DATA_FIRST_ROW, 3, current.iter().copied(), &metric_format)?;
     sheet.write_column_with_format(DATA_FIRST_ROW, 4, power.iter().copied(), &metric_format)?;
 
-    for (col, width) in [(0, 12.0), (1, 12.0), (2, 12.0), (3, 12.0), (4, 12.0)] {
+    for (col, width) in [(0, 20.0), (1, 12.0), (2, 12.0), (3, 12.0), (4, 12.0)] {
         sheet.set_column_width(col, width)?;
     }
 
@@ -88,7 +101,9 @@ fn write_data_sheet(
 }
 
 /// One scatter-line series, no markers - thousands of points render as a
-/// clean line rather than an unreadable cloud of shapes.
+/// clean line rather than an unreadable cloud of shapes. The X axis reads
+/// the `Timestamp` column, so it shows real time-of-day rather than seconds
+/// elapsed since the session started.
 fn build_metric_chart(row_count: u32, name: &str, unit: &str, value_col: u16, color: u32) -> Chart {
     let last_row = DATA_FIRST_ROW + row_count - 1;
     let mut chart = Chart::new(ChartType::ScatterStraight);
@@ -102,7 +117,7 @@ fn build_metric_chart(row_count: u32, name: &str, unit: &str, value_col: u16, co
         .set_marker(ChartMarker::new().set_none());
 
     chart.title().set_name(name);
-    chart.x_axis().set_name("Time (s)");
+    chart.x_axis().set_name("Time").set_num_format("hh:mm:ss");
     chart.y_axis().set_name(unit);
     chart.set_width(720).set_height(380);
     chart.legend().set_hidden();
@@ -129,18 +144,18 @@ fn write_charts_sheet(workbook: &mut Workbook, row_count: u32) -> Result<()> {
 #[specta::specta]
 pub fn export_xlsx(
     path: String,
-    times: Vec<f64>,
+    timestamps_ms: Vec<f64>,
     voltage: Vec<f64>,
     current: Vec<f64>,
     power: Vec<f64>,
 ) -> Result<(), String> {
-    if times.len() > MAX_EXPORT_ROWS {
+    if timestamps_ms.len() > MAX_EXPORT_ROWS {
         return Err(format!(
             "Session too large to export ({} points, max {MAX_EXPORT_ROWS})",
-            times.len()
+            timestamps_ms.len()
         ));
     }
-    write_session_xlsx(&path, &times, &voltage, &current, &power).map_err(|e| e.to_string())
+    write_session_xlsx(&path, &timestamps_ms, &voltage, &current, &power).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -164,15 +179,19 @@ mod tests {
         }
     }
 
+    // A realistic epoch-ms timestamp (2024-01-01T00:00:00Z) so
+    // ExcelDateTime::from_timestamp accepts it.
+    const BASE_MS: f64 = 1_704_067_200_000.0;
+
     #[test]
     fn write_session_xlsx_produces_a_valid_zip_package() {
         let file = TempXlsx::new("valid");
-        let times = [0.0, 1.5, 3.0];
+        let timestamps = [BASE_MS, BASE_MS + 1500.0, BASE_MS + 3000.0];
         let voltage = [4.2, 4.1, 4.0];
         let current = [1.0, 1.0, 1.0];
         let power = [4.2, 4.1, 4.0];
 
-        write_session_xlsx(file.0.to_str().unwrap(), &times, &voltage, &current, &power).unwrap();
+        write_session_xlsx(file.0.to_str().unwrap(), &timestamps, &voltage, &current, &power).unwrap();
 
         // .xlsx is a zip package - it must start with the local file header
         // signature "PK\x03\x04" and be non-trivially sized.
@@ -184,7 +203,9 @@ mod tests {
     #[test]
     fn write_session_xlsx_rejects_mismatched_column_lengths() {
         let file = TempXlsx::new("mismatched");
-        let err = write_session_xlsx(file.0.to_str().unwrap(), &[0.0, 1.0], &[4.2], &[1.0], &[4.2]).unwrap_err();
+        let err =
+            write_session_xlsx(file.0.to_str().unwrap(), &[BASE_MS, BASE_MS + 1000.0], &[4.2], &[1.0], &[4.2])
+                .unwrap_err();
         assert!(err.to_string().contains("mismatched column lengths"));
     }
 
@@ -201,7 +222,7 @@ mod tests {
         let n = MAX_EXPORT_ROWS + 1;
         let result = export_xlsx(
             file.0.to_str().unwrap().to_string(),
-            vec![0.0; n],
+            vec![BASE_MS; n],
             vec![0.0; n],
             vec![0.0; n],
             vec![0.0; n],

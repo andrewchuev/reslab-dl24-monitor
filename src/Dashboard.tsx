@@ -55,8 +55,11 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         stage: 'disconnected',
     });
 
+    // `times` holds each sample's actual Date.now() (epoch ms), not time
+    // elapsed since the session started - charts and exports show real
+    // wall-clock time so a session can be cross-referenced against other
+    // logs/events.
     const chartDataRef = useRef({
-        startTime: null as number | null,
         times: [] as number[],
         voltage: [] as number[],
         current: [] as number[],
@@ -89,7 +92,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         logAction('connect_click', { port, pollIntervalMs: settings.pollIntervalMs });
         setIsConnecting(true);
         setConnectionStatus({ connected: false, stage: 'probing', attempt: 0 });
-        chartDataRef.current = { startTime: null, times: [], voltage: [], current: [], power: [] };
+        chartDataRef.current = { times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         try {
             const result = await commands.connectPort(port, settings.pollIntervalMs);
@@ -135,7 +138,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
     const resetChart = () => {
         logAction('reset_chart_click', { pointsDiscarded: chartDataRef.current.times.length });
-        chartDataRef.current = { startTime: null, times: [], voltage: [], current: [], power: [] };
+        chartDataRef.current = { times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         setRenderTick((t) => t + 1);
     };
@@ -152,9 +155,13 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     const exportCsv = () => {
         const { times, voltage, current, power } = chartDataRef.current;
         if (!times.length) return;
-        const rows = ['time_s,voltage_v,current_a,power_w'];
+        const startMs = times[0];
+        const rows = ['timestamp,elapsed_s,voltage_v,current_a,power_w'];
         for (let i = 0; i < times.length; i += 1) {
-            rows.push(`${times[i].toFixed(3)},${voltage[i].toFixed(6)},${current[i].toFixed(6)},${power[i].toFixed(6)}`);
+            const elapsedS = (times[i] - startMs) / 1000;
+            rows.push(
+                `${new Date(times[i]).toISOString()},${elapsedS.toFixed(3)},${voltage[i].toFixed(6)},${current[i].toFixed(6)},${power[i].toFixed(6)}`
+            );
         }
         const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -257,19 +264,14 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
                 if (payload.voltageV == null && payload.currentA == null) return;
 
-                const now = Date.now();
                 const ref = chartDataRef.current;
-
-                if (!ref.startTime) ref.startTime = now;
-
-                const seconds = (now - ref.startTime) / 1000;
 
                 // Kept for the whole session, unbounded - this is also the
                 // source for CSV export and the "All" chart range, and a
                 // multi-hour capacity test is only a few MB of floats even at
                 // the fastest poll interval. settings.maxPoints instead caps
                 // how many points TelemetryCharts draws at once (see there).
-                ref.times.push(seconds);
+                ref.times.push(Date.now());
                 ref.voltage.push(payload.voltageV ?? 0);
                 ref.current.push(payload.currentA ?? 0);
                 ref.power.push(payload.powerW ?? 0);

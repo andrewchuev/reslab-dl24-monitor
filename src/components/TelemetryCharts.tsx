@@ -9,6 +9,7 @@ import type { TimeRange } from '../types';
 
 interface TelemetryChartsProps {
   hasData: boolean;
+  // Epoch ms (Date.now()) per sample - real time, not elapsed-since-start.
   times: number[];
   voltage: number[];
   current: number[];
@@ -85,7 +86,7 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
   const { t } = useTranslation();
   const cutoffSec = rangeSeconds(timeRange);
   const last = times.length ? times[times.length - 1] : 0;
-  const startWindow = last - cutoffSec;
+  const startWindow = last - cutoffSec * 1000;
   const fromIdx =
     cutoffSec === Number.POSITIVE_INFINITY ? 0 : Math.max(0, times.findIndex((t) => t >= startWindow));
 
@@ -108,7 +109,11 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">{t('telemetry.heading')}</h2>
           <Badge variant={isPaused ? 'secondary' : 'default'}>
-            {isPaused ? t('telemetry.paused') : t('telemetry.live')}
+            {/* "Live" stays in English in every language - it's a
+                near-universal streaming/dashboard term (Live/Paused),
+                and translating it risks colliding in meaning with the
+                separate "device connected" indicator. */}
+            {isPaused ? t('telemetry.paused') : 'Live'}
           </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">

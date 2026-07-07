@@ -13,7 +13,7 @@ export const commands = {
 	setCutoffVoltage: (volts: number | null) => typedError<null, string>(__TAURI_INVOKE("set_cutoff_voltage", { volts })),
 	setTimeoutSeconds: (seconds: number) => typedError<null, string>(__TAURI_INVOKE("set_timeout_seconds", { seconds })),
 	resetCounters: () => typedError<null, string>(__TAURI_INVOKE("reset_counters")),
-	exportXlsx: (path: string, times: (number | null)[], voltage: (number | null)[], current: (number | null)[], power: (number | null)[]) => typedError<null, string>(__TAURI_INVOKE("export_xlsx", { path, times, voltage, current, power })),
+	exportXlsx: (path: string, timestampsMs: (number | null)[], voltage: (number | null)[], current: (number | null)[], power: (number | null)[]) => typedError<null, string>(__TAURI_INVOKE("export_xlsx", { path, timestampsMs, voltage, current, power })),
 };
 
 /** Events */

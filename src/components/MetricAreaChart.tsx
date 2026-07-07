@@ -15,18 +15,16 @@ interface MetricAreaChartProps {
 // (typical ADC ripple on a cheap load) gets zoomed in until that ripple
 // fills the whole chart height and reads as noise. Pad the range instead of
 // hugging it.
-// Formats elapsed seconds as m:ss, or h:mm:ss past the first hour - used for
-// both the X-axis ticks and the tooltip header, so hovering a point (or
-// reading the axis) answers "when did this happen" for a session that can
-// run for hours.
-function formatElapsed(totalSeconds: number): string {
-  const s = Math.max(0, Math.round(totalSeconds));
-  const hh = Math.floor(s / 3600);
-  const mm = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  return hh > 0
-    ? `${hh}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
-    : `${mm}:${ss.toString().padStart(2, '0')}`;
+// Formats an epoch-ms sample time as local hh:mm:ss - used for both the
+// X-axis ticks and the tooltip header, so hovering a point (or reading the
+// axis) shows the actual time the reading was taken, not time elapsed since
+// the session started.
+function formatClockTime(epochMs: number): string {
+  const d = new Date(epochMs);
+  const hh = d.getHours().toString().padStart(2, '0');
+  const mm = d.getMinutes().toString().padStart(2, '0');
+  const ss = d.getSeconds().toString().padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
 }
 
 function paddedDomain([dataMin, dataMax]: readonly [number, number]): [number, number] {
@@ -68,7 +66,7 @@ export default function MetricAreaChart({ data, color, unit, id, label, valueFor
             tickLine={false}
             axisLine={false}
             minTickGap={40}
-            tickFormatter={(value: number) => formatElapsed(value)}
+            tickFormatter={(value: number) => formatClockTime(value)}
           />
           <YAxis
             width={44}
@@ -85,7 +83,7 @@ export default function MetricAreaChart({ data, color, unit, id, label, valueFor
               borderRadius: 8,
               fontSize: 12,
             }}
-            labelFormatter={(value: unknown) => `${label} @ ${formatElapsed(Number(value))}`}
+            labelFormatter={(value: unknown) => `${label} @ ${formatClockTime(Number(value))}`}
             formatter={(value: unknown) => [format(Number(value)), unit] as [string, string]}
           />
           <Area
