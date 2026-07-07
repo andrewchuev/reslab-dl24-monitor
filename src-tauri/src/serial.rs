@@ -209,26 +209,32 @@ fn cmd_to_key_update(ds: &mut DataStore, cmd: u8, val: Val) {
     }
 }
 
+/// Polls one cycle's worth of values. Returns how many of `FREQ_VALS` were
+/// successfully read - the caller uses this to tell a live link with an
+/// occasional dropped value from one that's gone completely silent (e.g. the
+/// USB-serial adapter was unplugged), which a bare `Ok(())` couldn't convey.
 pub fn read_all(
     port: &mut dyn SerialPort,
     ds: &mut DataStore,
     aux_index: &mut usize,
     read_all_aux: bool,
     stop: &AtomicBool,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut read_count = 0;
     for &cmd in &FREQ_VALS {
         if stop.load(Ordering::Relaxed) {
-            return Ok(());
+            return Ok(read_count);
         }
         if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, stop)? {
             cmd_to_key_update(ds, cmd, v);
+            read_count += 1;
         }
     }
 
     if read_all_aux {
         for &cmd in &AUX_VALS {
             if stop.load(Ordering::Relaxed) {
-                return Ok(());
+                return Ok(read_count);
             }
             if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, stop)? {
                 cmd_to_key_update(ds, cmd, v);
@@ -242,7 +248,7 @@ pub fn read_all(
         *aux_index = (*aux_index + 1) % AUX_VALS.len();
     }
 
-    Ok(())
+    Ok(read_count)
 }
 
 /// Sends a write command (cmd < 0x10) and retries until the device ACKs it.

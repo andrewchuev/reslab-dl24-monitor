@@ -24,6 +24,15 @@ const POLL_INTERVAL_MAX_MS: u32 = 10000;
 /// a connection so broken that every read/write keeps failing will correctly
 /// surface as a timeout error here rather than hang the UI.
 const CONTROL_REPLY_TIMEOUT_MS: u64 = 5000;
+/// Consecutive poll cycles that read zero values before the link is treated as
+/// dropped and auto-reconnect kicks in. A single bad cycle is normal noise
+/// (see FREQ_VALS' own per-value retries); this only fires once the device has
+/// gone completely silent for a sustained stretch.
+const STALL_CYCLES_BEFORE_RECONNECT: u32 = 5;
+/// How many times to reopen and re-probe the port before giving up and
+/// reporting the connection as lost.
+const RECONNECT_ATTEMPTS: u8 = 5;
+const RECONNECT_RETRY_DELAY_MS: u64 = 2000;
 
 #[derive(Serialize, Clone, Type, Event)]
 pub struct DeviceDataEvent {
@@ -37,7 +46,7 @@ pub struct DeviceDataEvent {
     #[serde(rename = "capacityMAh")]
     capacity_mah: f64,
     #[serde(rename = "powerW")]
-    power_w: String,
+    power_w: f64,
     #[serde(rename = "tempC")]
     temp_c: f64,
     #[serde(rename = "runtimeS")]
@@ -87,10 +96,9 @@ fn emit_connection(
 
 fn emit_device(app: &AppHandle, ds: &DataStore) {
     let power = ds.voltage * ds.current;
-    let power_str = format!("{power:.2}");
 
     log::debug!(
-        "telemetry: V={:.4} A={:.4} W={power_str} Ah={:.4} Wh={:.4} tempC={:.2} on={} time={} setI={:.2} setV={:.2} timer={}",
+        "telemetry: V={:.4} A={:.4} W={power:.2} Ah={:.4} Wh={:.4} tempC={:.2} on={} time={} setI={:.2} setV={:.2} timer={}",
         ds.voltage,
         ds.current,
         ds.cap_ah,
@@ -108,7 +116,7 @@ fn emit_device(app: &AppHandle, ds: &DataStore) {
         voltage_v: ds.voltage,
         current_a: ds.current,
         capacity_mah: ds.cap_ah * 1000.0,
-        power_w: power_str,
+        power_w: power,
         temp_c: ds.temp,
         runtime_s: protocol::runtime_seconds(&ds.time),
         energy_wh: ds.cap_wh,
@@ -257,6 +265,7 @@ pub fn connect_port(
             };
 
             let mut aux_index: usize = 0;
+            let mut stalled_cycles: u32 = 0;
 
             loop {
                 // recv_timeout doubles as the poll-cycle wait: a queued control
@@ -275,11 +284,54 @@ pub fn connect_port(
                 if stop.load(Ordering::SeqCst) {
                     break;
                 }
-                if let Err(e) = serial::read_all(&mut *port, &mut ds, &mut aux_index, false, &stop)
-                {
-                    log::warn!("read_all failed, keeping last known values: {e}");
-                }
+
+                let read_count =
+                    match serial::read_all(&mut *port, &mut ds, &mut aux_index, false, &stop) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            log::warn!("read_all failed, keeping last known values: {e}");
+                            0
+                        }
+                    };
                 emit_device(&app_for_thread, &ds);
+
+                if read_count > 0 {
+                    stalled_cycles = 0;
+                    continue;
+                }
+
+                stalled_cycles += 1;
+                if stalled_cycles < STALL_CYCLES_BEFORE_RECONNECT {
+                    continue;
+                }
+
+                log::error!(
+                    "no data from {port_path} for {stalled_cycles} consecutive poll cycles, attempting to reconnect"
+                );
+                match reconnect(&port_path, &app_for_thread, &stop) {
+                    Some(new_port) => {
+                        port = new_port;
+                        stalled_cycles = 0;
+                        emit_connection(&app_for_thread, true, None, Some("connected".into()), None, None);
+                    }
+                    None => {
+                        if stop.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        log::error!(
+                            "gave up reconnecting to {port_path} after {RECONNECT_ATTEMPTS} attempts"
+                        );
+                        emit_connection(
+                            &app_for_thread,
+                            false,
+                            Some("Lost connection to device".into()),
+                            Some("error".into()),
+                            Some(RECONNECT_ATTEMPTS),
+                            Some(RECONNECT_ATTEMPTS),
+                        );
+                        break;
+                    }
+                }
             }
 
             Ok(())
@@ -299,6 +351,53 @@ pub fn connect_port(
     }));
 
     Ok(())
+}
+
+/// Reopens `port_path` and confirms the device responds, retrying up to
+/// `RECONNECT_ATTEMPTS` times with a backoff between attempts. Called once the
+/// poll loop has gone quiet for `STALL_CYCLES_BEFORE_RECONNECT` cycles straight,
+/// e.g. because the USB-serial adapter dropped out. Returns `None` either
+/// because `stop` fired mid-retry (disconnect requested) or every attempt
+/// failed; the caller tells the two apart by checking `stop` itself.
+fn reconnect(
+    port_path: &str,
+    app: &AppHandle,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Option<Box<dyn serialport::SerialPort>> {
+    for attempt in 1..=RECONNECT_ATTEMPTS {
+        if stop.load(Ordering::SeqCst) {
+            return None;
+        }
+
+        emit_connection(
+            app,
+            false,
+            None,
+            Some("reconnecting".into()),
+            Some(attempt),
+            Some(RECONNECT_ATTEMPTS),
+        );
+        log::warn!("reconnect attempt {attempt}/{RECONNECT_ATTEMPTS} for {port_path}");
+
+        if let Ok(mut new_port) = serialport::new(port_path, serial::BAUD)
+            .data_bits(serialport::DataBits::Eight)
+            .stop_bits(serialport::StopBits::One)
+            .parity(serialport::Parity::None)
+            .timeout(Duration::from_millis(serial::COMMAND_TIMEOUT_MS))
+            .open()
+        {
+            if let Ok(Some(Val::Num(_))) = serial::get_val(&mut *new_port, protocol::VOLTAGE, 1, stop)
+            {
+                log::info!("reconnected to {port_path} after {attempt} attempt(s)");
+                return Some(new_port);
+            }
+        }
+
+        if attempt < RECONNECT_ATTEMPTS {
+            serial::interruptible_sleep(stop, RECONNECT_RETRY_DELAY_MS);
+        }
+    }
+    None
 }
 
 /// Runs a queued hardware write on the worker thread and reports the outcome
