@@ -1,21 +1,21 @@
 import { Gauge, Flame, Zap } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { DeviceMetrics } from '../types';
 
 interface HeroMetricsProps {
   data: DeviceMetrics;
 }
 
-function formatNumber(value: number | string | null, decimals = 3): string {
-  if (value == null) return '—';
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  return Number.isNaN(num) ? '—' : num.toFixed(decimals);
+function formatNumber(value: number | null, decimals = 3): string {
+  return value == null || Number.isNaN(value) ? '—' : value.toFixed(decimals);
 }
 
 export default function HeroMetrics({ data }: HeroMetricsProps) {
+  const { t } = useTranslation();
   const items = [
-    { label: 'Voltage', value: formatNumber(data.voltageV, 2), unit: 'V', icon: Zap, color: 'text-indigo-400' },
-    { label: 'Current', value: formatNumber(data.currentA, 3), unit: 'A', icon: Gauge, color: 'text-emerald-400' },
-    { label: 'Power', value: formatNumber(data.powerW, 2), unit: 'W', icon: Flame, color: 'text-amber-400' },
+    { label: t('metrics.voltage'), value: formatNumber(data.voltageV, 2), unit: 'V', icon: Zap, color: 'text-indigo-400' },
+    { label: t('metrics.current'), value: formatNumber(data.currentA, 3), unit: 'A', icon: Gauge, color: 'text-emerald-400' },
+    { label: t('metrics.power'), value: formatNumber(data.powerW, 2), unit: 'W', icon: Flame, color: 'text-amber-400' },
   ];
 
   return (

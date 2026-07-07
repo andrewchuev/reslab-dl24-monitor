@@ -1,12 +1,16 @@
 import { Bluetooth, Cpu, Loader2, RefreshCw, Settings2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
+import type { TFunction } from 'i18next';
 import type { ConnectionStatusEvent_Deserialize } from '../bindings';
+import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../i18n';
 import type { AppSettings } from '../types';
+import { translateBackendError } from '../utils/backendErrors';
 import SettingsPanel from './SettingsPanel';
 
 type ConnectionStatus = Partial<ConnectionStatusEvent_Deserialize>;
@@ -27,17 +31,29 @@ interface StatusHeaderProps {
   onSettingsChange: (next: AppSettings) => void;
 }
 
-function stageLabel(status: ConnectionStatus, selectedPort: string | null): string {
+const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
+  en: 'English',
+  ru: 'Русский',
+  uk: 'Українська',
+};
+
+function stageLabel(t: TFunction, status: ConnectionStatus, selectedPort: string | null): string {
   if (status.stage === 'probing') {
-    const port = selectedPort ? ` ${selectedPort}` : '';
-    return `Probing${port} (${status.attempt ?? 0}/${status.maxAttempts ?? 0})`;
+    const attempt = status.attempt ?? 0;
+    const maxAttempts = status.maxAttempts ?? 0;
+    return selectedPort
+      ? t('status.probingPort', { port: selectedPort, attempt, maxAttempts })
+      : t('status.probing', { attempt, maxAttempts });
   }
-  if (status.stage === 'connected') return 'Connected';
-  if (status.stage === 'disconnected') return 'Disconnected';
-  if (status.stage === 'validation') return 'Validation error';
-  if (status.stage === 'probe_failed') return 'Probe failed';
-  if (status.stage === 'error') return 'Connection error';
-  return status.connected ? 'Connected' : 'Disconnected';
+  if (status.stage === 'connected') return t('status.connected');
+  if (status.stage === 'disconnected') return t('status.disconnected');
+  if (status.stage === 'validation') return t('status.validationError');
+  if (status.stage === 'probe_failed') return t('status.probeFailed');
+  if (status.stage === 'reconnecting') {
+    return t('status.reconnecting', { attempt: status.attempt ?? 0, maxAttempts: status.maxAttempts ?? 0 });
+  }
+  if (status.stage === 'error') return t('status.connectionError');
+  return status.connected ? t('status.connected') : t('status.disconnected');
 }
 
 export default function StatusHeader(props: StatusHeaderProps) {
@@ -57,7 +73,9 @@ export default function StatusHeader(props: StatusHeaderProps) {
     onSettingsChange,
   } = props;
 
+  const { t, i18n } = useTranslation();
   const busy = isConnecting || isAutoDetecting;
+  const displayedError = translateBackendError(t, status.error);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">
@@ -70,7 +88,11 @@ export default function StatusHeader(props: StatusHeaderProps) {
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className={`size-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-muted-foreground/50'}`} />
             <Bluetooth className="size-3" />
-            <span>{isAutoDetecting ? `Detecting device… (${stageLabel(status, selectedPort)})` : stageLabel(status, selectedPort)}</span>
+            <span>
+              {isAutoDetecting
+                ? t('status.detecting', { stage: stageLabel(t, status, selectedPort) })
+                : stageLabel(t, status, selectedPort)}
+            </span>
           </div>
         </div>
       </div>
@@ -78,7 +100,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
       <div className="flex flex-wrap items-center gap-2">
         <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
           <SelectTrigger className="h-9 w-[150px]">
-            <SelectValue placeholder="Select port" />
+            <SelectValue placeholder={t('status.selectPort')} />
           </SelectTrigger>
           <SelectContent>
             {ports.map((p) => (
@@ -100,17 +122,19 @@ export default function StatusHeader(props: StatusHeaderProps) {
         >
           {busy && <Loader2 className="size-4 animate-spin" />}
           {isAutoDetecting
-            ? 'Detecting…'
-            : isConnecting
-              ? connected
-                ? 'Disconnecting…'
-                : 'Connecting…'
-              : connected
-                ? 'Disconnect'
-                : 'Connect'}
+            ? t('status.detectingButton')
+            : status.stage === 'reconnecting'
+              ? t('status.reconnectingButton')
+              : isConnecting
+                ? connected
+                  ? t('status.disconnectingButton')
+                  : t('status.connectingButton')
+                : connected
+                  ? t('status.disconnectButton')
+                  : t('status.connectButton')}
         </Button>
 
-        {status.error && !isAutoDetecting && <Badge variant="destructive">{status.error}</Badge>}
+        {displayedError && !isAutoDetecting && <Badge variant="destructive">{displayedError}</Badge>}
 
         <Sheet>
           <SheetTrigger asChild>
@@ -120,11 +144,26 @@ export default function StatusHeader(props: StatusHeaderProps) {
           </SheetTrigger>
           <SheetContent>
             <SheetHeader>
-              <SheetTitle>Settings</SheetTitle>
+              <SheetTitle>{t('app.settings')}</SheetTitle>
             </SheetHeader>
             <div className="flex flex-col gap-6 px-4 pb-4">
               <div className="flex items-center justify-between">
-                <Label htmlFor="dark-mode">Dark theme</Label>
+                <Label htmlFor="language-select">{t('app.language')}</Label>
+                <Select value={i18n.resolvedLanguage ?? 'en'} onValueChange={(lng) => i18n.changeLanguage(lng)}>
+                  <SelectTrigger id="language-select" className="h-8 w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_LANGUAGES.map((lng) => (
+                      <SelectItem key={lng} value={lng}>
+                        {LANGUAGE_NAMES[lng]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="dark-mode">{t('app.darkTheme')}</Label>
                 <Switch
                   id="dark-mode"
                   checked={themeMode === 'dark'}

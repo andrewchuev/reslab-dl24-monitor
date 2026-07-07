@@ -1,13 +1,12 @@
+import { useTranslation } from 'react-i18next';
 import type { DeviceMetrics } from '../types';
 
 interface SecondaryMetricsProps {
   data: DeviceMetrics;
 }
 
-function formatNumber(value: number | string | null, decimals = 3): string {
-  if (value == null) return '—';
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  return Number.isNaN(num) ? '—' : num.toFixed(decimals);
+function formatNumber(value: number | null, decimals = 3): string {
+  return value == null || Number.isNaN(value) ? '—' : value.toFixed(decimals);
 }
 
 function formatRuntime(seconds: number | null): string {
@@ -20,11 +19,12 @@ function formatRuntime(seconds: number | null): string {
 }
 
 export default function SecondaryMetrics({ data }: SecondaryMetricsProps) {
+  const { t } = useTranslation();
   const items = [
-    { label: 'Capacity', value: formatNumber(data.capacityMAh, 0), unit: 'mAh' },
-    { label: 'Energy', value: formatNumber(data.energyWh, 2), unit: 'Wh' },
-    { label: 'Temperature', value: formatNumber(data.tempC, 1), unit: '°C' },
-    { label: 'Runtime', value: formatRuntime(data.runtimeS), unit: '' },
+    { label: t('metrics.capacity'), value: formatNumber(data.capacityMAh, 0), unit: 'mAh' },
+    { label: t('metrics.energy'), value: formatNumber(data.energyWh, 2), unit: 'Wh' },
+    { label: t('metrics.temperature'), value: formatNumber(data.tempC, 1), unit: '°C' },
+    { label: t('metrics.runtime'), value: formatRuntime(data.runtimeS), unit: '' },
   ];
 
   return (

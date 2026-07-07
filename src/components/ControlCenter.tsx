@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Loader2, Power, RotateCcw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import type { TFunction } from 'i18next';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,7 +47,12 @@ async function runCommand(label: string, action: () => Promise<CommandResult>, s
 
 type PendingAction = 'toggle' | 'current' | 'cutoff' | 'timeout' | 'reset' | null;
 
+function currentValueLabel(t: TFunction, value: number | null | undefined, unit: string, decimals = 2): string {
+  return t('controlCenter.currentValue', { value: value?.toFixed(decimals) ?? '—', unit });
+}
+
 export default function ControlCenter({ connected, data }: ControlCenterProps) {
+  const { t } = useTranslation();
   const [currentInput, setCurrentInput] = useState('');
   const [cutoffInput, setCutoffInput] = useState('');
   const [timeoutInput, setTimeoutInput] = useState('');
@@ -67,7 +74,7 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
       runCommand(
         `set_load_on(${!data.isOn})`,
         () => commands.setLoadOn(!data.isOn),
-        data.isOn ? 'Load switched off' : 'Load switched on'
+        data.isOn ? t('controlCenter.toastLoadOff') : t('controlCenter.toastLoadOn')
       )
     );
 
@@ -75,7 +82,7 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
     const amps = parseFloat(currentInput);
     if (Number.isNaN(amps)) return;
     withPending('current', () =>
-      runCommand(`set_current(${amps})`, () => commands.setCurrent(amps), `Current set to ${amps.toFixed(2)} A`)
+      runCommand(`set_current(${amps})`, () => commands.setCurrent(amps), t('controlCenter.toastCurrentSet', { value: amps.toFixed(2) }))
     );
   };
 
@@ -86,7 +93,7 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
       runCommand(
         `set_cutoff(${volts})`,
         () => commands.setCutoffVoltage(volts),
-        `Cut-off set to ${volts.toFixed(2)} V`
+        t('controlCenter.toastCutoffSet', { value: volts.toFixed(2) })
       )
     );
   };
@@ -98,21 +105,23 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
       runCommand(
         `set_timeout(${minutes}min)`,
         () => commands.setTimeoutSeconds(Math.round(minutes * 60)),
-        `Timeout set to ${minutes} min`
+        t('controlCenter.toastTimeoutSet', { value: minutes })
       )
     );
   };
 
   const handleReset = () =>
-    withPending('reset', () => runCommand('reset_counters', () => commands.resetCounters(), 'Counters reset'));
+    withPending('reset', () =>
+      runCommand('reset_counters', () => commands.resetCounters(), t('controlCenter.toastCountersReset'))
+    );
 
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Control Center</h2>
+        <h2 className="text-sm font-semibold">{t('controlCenter.heading')}</h2>
         {/* PX-100 only supports fixed constant-current mode: no mode-switch
             command exists in the protocol, so this is a label, not a selector. */}
-        <Badge variant="outline">Mode: CC (fixed)</Badge>
+        <Badge variant="outline">{t('controlCenter.modeFixed')}</Badge>
       </div>
 
       <div className="flex flex-col gap-5">
@@ -130,17 +139,17 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
           )}
           {pendingAction === 'toggle'
             ? data.isOn
-              ? 'Turning Off…'
-              : 'Turning On…'
+              ? t('controlCenter.turningOff')
+              : t('controlCenter.turningOn')
             : data.isOn
-              ? 'Turn Load Off'
-              : 'Turn Load On'}
+              ? t('controlCenter.turnOff')
+              : t('controlCenter.turnOn')}
         </Button>
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <Label>Set Current (A)</Label>
-            <span className="text-xs text-muted-foreground">Current: {data.setCurrentA?.toFixed(2) ?? '—'} A</span>
+            <Label>{t('controlCenter.setCurrent')}</Label>
+            <span className="text-xs text-muted-foreground">{currentValueLabel(t, data.setCurrentA, 'A')}</span>
           </div>
           <div className="flex gap-2">
             <Input
@@ -153,15 +162,15 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
               disabled={disabled}
             />
             <Button variant="secondary" disabled={disabled || currentInput === ''} onClick={handleSetCurrent}>
-              {pendingAction === 'current' ? <Loader2 className="size-4 animate-spin" /> : 'Set'}
+              {pendingAction === 'current' ? <Loader2 className="size-4 animate-spin" /> : t('controlCenter.set')}
             </Button>
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <Label>Cut-off Voltage (V)</Label>
-            <span className="text-xs text-muted-foreground">Current: {data.setCutoffV?.toFixed(2) ?? '—'} V</span>
+            <Label>{t('controlCenter.cutoffVoltage')}</Label>
+            <span className="text-xs text-muted-foreground">{currentValueLabel(t, data.setCutoffV, 'V')}</span>
           </div>
           <div className="flex gap-2">
             <Input
@@ -174,16 +183,16 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
               disabled={disabled}
             />
             <Button variant="secondary" disabled={disabled || cutoffInput === ''} onClick={handleSetCutoff}>
-              {pendingAction === 'cutoff' ? <Loader2 className="size-4 animate-spin" /> : 'Set'}
+              {pendingAction === 'cutoff' ? <Loader2 className="size-4 animate-spin" /> : t('controlCenter.set')}
             </Button>
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <Label>Timeout (min, 0 = off)</Label>
+            <Label>{t('controlCenter.timeout')}</Label>
             <span className="text-xs text-muted-foreground">
-              Current: {data.setTimerS != null ? (data.setTimerS / 60).toFixed(1) : '—'} min
+              {currentValueLabel(t, data.setTimerS != null ? data.setTimerS / 60 : null, t('controlCenter.minutesUnit'), 1)}
             </span>
           </div>
           <div className="flex gap-2">
@@ -197,7 +206,7 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
               disabled={disabled}
             />
             <Button variant="secondary" disabled={disabled || timeoutInput === ''} onClick={handleSetTimeout}>
-              {pendingAction === 'timeout' ? <Loader2 className="size-4 animate-spin" /> : 'Set'}
+              {pendingAction === 'timeout' ? <Loader2 className="size-4 animate-spin" /> : t('controlCenter.set')}
             </Button>
           </div>
         </div>
@@ -210,20 +219,17 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
               ) : (
                 <RotateCcw className="size-4" />
               )}
-              {pendingAction === 'reset' ? 'Resetting…' : 'Reset Counters'}
+              {pendingAction === 'reset' ? t('controlCenter.resetting') : t('controlCenter.resetCounters')}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Reset accumulated counters?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This clears the device&apos;s accumulated capacity (Ah) and energy (Wh) counters. This cannot be
-                undone.
-              </AlertDialogDescription>
+              <AlertDialogTitle>{t('controlCenter.resetDialogTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('controlCenter.resetDialogDescription')}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleReset}>Reset</AlertDialogAction>
+              <AlertDialogCancel>{t('controlCenter.cancel')}</AlertDialogCancel>
+              <AlertDialogAction onClick={handleReset}>{t('controlCenter.reset')}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

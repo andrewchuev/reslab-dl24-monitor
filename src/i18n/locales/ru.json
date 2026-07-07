@@ -1,0 +1,85 @@
+{
+  "app": {
+    "settings": "Настройки",
+    "language": "Язык",
+    "darkTheme": "Тёмная тема"
+  },
+  "status": {
+    "detecting": "Поиск устройства… ({{stage}})",
+    "probingPort": "Проверка {{port}} ({{attempt}}/{{maxAttempts}})",
+    "probing": "Проверка ({{attempt}}/{{maxAttempts}})",
+    "connected": "Подключено",
+    "disconnected": "Отключено",
+    "validationError": "Ошибка проверки",
+    "probeFailed": "Устройство не отвечает",
+    "reconnecting": "Переподключение ({{attempt}}/{{maxAttempts}})",
+    "connectionError": "Ошибка подключения",
+    "selectPort": "Выберите порт",
+    "detectingButton": "Поиск…",
+    "reconnectingButton": "Переподключение…",
+    "disconnectingButton": "Отключение…",
+    "connectingButton": "Подключение…",
+    "disconnectButton": "Отключить",
+    "connectButton": "Подключить"
+  },
+  "settingsPanel": {
+    "pollInterval": "Интервал опроса: {{value}} мс",
+    "chartRefresh": "Частота обновления графика: {{value}} мс",
+    "maxPoints": "Макс. точек на графике: {{value}}",
+    "maxPointsHint": "Ограничивает только отрисовку — вся сессия всегда сохраняется для экспорта в CSV."
+  },
+  "metrics": {
+    "voltage": "Напряжение",
+    "current": "Ток",
+    "power": "Мощность",
+    "capacity": "Ёмкость",
+    "energy": "Энергия",
+    "temperature": "Температура",
+    "runtime": "Время работы"
+  },
+  "telemetry": {
+    "heading": "Телеметрия в реальном времени",
+    "live": "Онлайн",
+    "paused": "Пауза",
+    "rangeAll": "Всё",
+    "emptyState": "Подключите устройство, чтобы начать мониторинг",
+    "exportCsv": "CSV",
+    "exportXlsx": "Excel"
+  },
+  "controlCenter": {
+    "heading": "Панель управления",
+    "modeFixed": "Режим: CC (фиксированный)",
+    "turningOff": "Выключение…",
+    "turningOn": "Включение…",
+    "turnOff": "Выключить нагрузку",
+    "turnOn": "Включить нагрузку",
+    "setCurrent": "Ток (A)",
+    "cutoffVoltage": "Напряжение отключения (V)",
+    "timeout": "Таймаут (мин, 0 = выкл)",
+    "currentValue": "Текущее: {{value}} {{unit}}",
+    "minutesUnit": "мин",
+    "set": "Установить",
+    "resetting": "Сброс…",
+    "resetCounters": "Сбросить счётчики",
+    "resetDialogTitle": "Сбросить накопленные счётчики?",
+    "resetDialogDescription": "Это обнулит накопленные устройством счётчики ёмкости (Ah) и энергии (Wh). Действие необратимо.",
+    "cancel": "Отмена",
+    "reset": "Сбросить",
+    "toastLoadOff": "Нагрузка выключена",
+    "toastLoadOn": "Нагрузка включена",
+    "toastCurrentSet": "Ток установлен: {{value}} A",
+    "toastCutoffSet": "Напряжение отключения установлено: {{value}} V",
+    "toastTimeoutSet": "Таймаут установлен: {{value}} мин",
+    "toastCountersReset": "Счётчики сброшены"
+  },
+  "errors": {
+    "noPortSelected": "Порт не выбран",
+    "portNotFound": "Порт не найден: {{port}}",
+    "probeFailed": "Устройство не отвечает",
+    "lostConnection": "Связь с устройством потеряна",
+    "notConnected": "Нет подключения",
+    "workerNotRunning": "Обработчик не запущен",
+    "deviceTimeout": "Устройство не ответило вовремя",
+    "failedToOpenPort": "Не удалось открыть порт {{port}}"
+  }
+}

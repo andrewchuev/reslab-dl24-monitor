@@ -1,0 +1,85 @@
+{
+  "app": {
+    "settings": "Settings",
+    "language": "Language",
+    "darkTheme": "Dark theme"
+  },
+  "status": {
+    "detecting": "Detecting device… ({{stage}})",
+    "probingPort": "Probing {{port}} ({{attempt}}/{{maxAttempts}})",
+    "probing": "Probing ({{attempt}}/{{maxAttempts}})",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "validationError": "Validation error",
+    "probeFailed": "Probe failed",
+    "reconnecting": "Reconnecting ({{attempt}}/{{maxAttempts}})",
+    "connectionError": "Connection error",
+    "selectPort": "Select port",
+    "detectingButton": "Detecting…",
+    "reconnectingButton": "Reconnecting…",
+    "disconnectingButton": "Disconnecting…",
+    "connectingButton": "Connecting…",
+    "disconnectButton": "Disconnect",
+    "connectButton": "Connect"
+  },
+  "settingsPanel": {
+    "pollInterval": "Poll interval: {{value}} ms",
+    "chartRefresh": "Chart refresh throttle: {{value}} ms",
+    "maxPoints": "Max points drawn per chart: {{value}}",
+    "maxPointsHint": "Caps chart rendering only - the full session is always kept for CSV export."
+  },
+  "metrics": {
+    "voltage": "Voltage",
+    "current": "Current",
+    "power": "Power",
+    "capacity": "Capacity",
+    "energy": "Energy",
+    "temperature": "Temperature",
+    "runtime": "Runtime"
+  },
+  "telemetry": {
+    "heading": "Real-time Telemetry",
+    "live": "Live",
+    "paused": "Paused",
+    "rangeAll": "All",
+    "emptyState": "Connect to the device to start monitoring",
+    "exportCsv": "CSV",
+    "exportXlsx": "Excel"
+  },
+  "controlCenter": {
+    "heading": "Control Center",
+    "modeFixed": "Mode: CC (fixed)",
+    "turningOff": "Turning Off…",
+    "turningOn": "Turning On…",
+    "turnOff": "Turn Load Off",
+    "turnOn": "Turn Load On",
+    "setCurrent": "Set Current (A)",
+    "cutoffVoltage": "Cut-off Voltage (V)",
+    "timeout": "Timeout (min, 0 = off)",
+    "currentValue": "Current: {{value}} {{unit}}",
+    "minutesUnit": "min",
+    "set": "Set",
+    "resetting": "Resetting…",
+    "resetCounters": "Reset Counters",
+    "resetDialogTitle": "Reset accumulated counters?",
+    "resetDialogDescription": "This clears the device's accumulated capacity (Ah) and energy (Wh) counters. This cannot be undone.",
+    "cancel": "Cancel",
+    "reset": "Reset",
+    "toastLoadOff": "Load switched off",
+    "toastLoadOn": "Load switched on",
+    "toastCurrentSet": "Current set to {{value}} A",
+    "toastCutoffSet": "Cut-off set to {{value}} V",
+    "toastTimeoutSet": "Timeout set to {{value}} min",
+    "toastCountersReset": "Counters reset"
+  },
+  "errors": {
+    "noPortSelected": "No port selected",
+    "portNotFound": "Port not found: {{port}}",
+    "probeFailed": "Probe failed",
+    "lostConnection": "Lost connection to device",
+    "notConnected": "Not connected",
+    "workerNotRunning": "Worker not running",
+    "deviceTimeout": "Device did not respond in time",
+    "failedToOpenPort": "Failed to open port {{port}}"
+  }
+}
