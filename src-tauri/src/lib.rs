@@ -1,6 +1,5 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 mod commands;
+mod export;
 mod logging;
 mod protocol;
 mod serial;
@@ -22,6 +21,7 @@ pub fn run() {
             commands::set_cutoff_voltage,
             commands::set_timeout_seconds,
             commands::reset_counters,
+            export::export_xlsx,
         ])
         .events(collect_events![DeviceDataEvent, ConnectionStatusEvent]);
 
@@ -33,6 +33,7 @@ pub fn run() {
         .expect("failed to export typescript bindings");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 // Third-party crates stay quiet at Info; our own code (backend
