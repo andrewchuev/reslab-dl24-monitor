@@ -15,6 +15,14 @@ export default defineConfig(async () => ({
     },
   },
 
+  build: {
+    // Default 500 kB targets web pages fetched over a network; this is a
+    // Tauri desktop bundle loaded straight from disk, so the warning doesn't
+    // apply the same way. Current output is ~760 kB (mostly recharts, see
+    // README), so this just raises the ceiling past that with headroom.
+    chunkSizeWarningLimit: 1000,
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

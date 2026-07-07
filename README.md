@@ -21,11 +21,21 @@ reset.
   the highest number down, since the DL24 typically enumerates as the
   last or second-to-last serial port on the system
 - Real-time voltage / current / power, each on its own auto-scaled chart
+  with a real elapsed-time axis and full-session history (the "30s/5m/15m"
+  range only zooms the live view; "All" and CSV export always cover the
+  whole session, not just what's currently rendered)
 - Capacity (Ah), energy (Wh), temperature and runtime readouts
-- CSV export of a monitoring session
+- CSV export of a monitoring session, full precision, unbounded by the
+  chart's render settings
+- Excel (.xlsx) export with the same full-precision data plus native,
+  editable voltage/current/power charts on their own sheet
 - Control Center: load on/off, set current, set cut-off voltage, set
   timeout, reset accumulated counters
 - Dark/light theme, configurable poll interval and chart history
+- UI in English, Russian or Ukrainian (Settings → Language), detected from
+  the OS locale on first launch with English as the fallback; measurement
+  units (V/A/W/Ah/Wh) and numeric formatting stay locale-neutral throughout
+  the UI, charts and exports for consistency and easier data interchange
 - Type-safe Rust ↔ TypeScript bridge — the UI never drifts from the backend
 
 **Note:** the PX-100 only operates in fixed constant-current (CC) mode —
@@ -34,8 +44,8 @@ a static "Mode: CC" badge rather than a CC/CV/CR/CP selector.
 
 ## Tech Stack
 
-- **Backend:** Rust, [Tauri v2](https://v2.tauri.app/), [`serialport`](https://crates.io/crates/serialport), [`tauri-specta`](https://github.com/specta-rs/tauri-specta)
-- **Frontend:** React 19, TypeScript, [shadcn/ui](https://ui.shadcn.com/) (Radix + Tailwind v4), [Recharts](https://recharts.org/)
+- **Backend:** Rust, [Tauri v2](https://v2.tauri.app/), [`serialport`](https://crates.io/crates/serialport), [`tauri-specta`](https://github.com/specta-rs/tauri-specta), [`rust_xlsxwriter`](https://crates.io/crates/rust_xlsxwriter)
+- **Frontend:** React 19, TypeScript, [shadcn/ui](https://ui.shadcn.com/) (Radix + Tailwind v4), [Recharts](https://recharts.org/), [react-i18next](https://react.i18next.com/)
 - **Release automation:** GitHub Actions, [`tauri-action`](https://github.com/tauri-apps/tauri-action) (Windows/macOS/Linux installers)
 
 ## Protocol
@@ -96,6 +106,11 @@ are the `HH`, `MM`, `SS` bytes directly.
   and a ~200 ms backoff between attempts.
 - Reads and writes watch a shared stop flag, so disconnecting doesn't have
   to wait out an in-flight timeout.
+- If 5 consecutive poll cycles read nothing at all (e.g. the USB-serial
+  adapter was unplugged), the app auto-reconnects: it reopens the port and
+  re-probes it, up to 5 attempts with a 2 s backoff. Success resumes polling
+  transparently; exhausting all attempts reports a connection error and
+  stops, instead of the UI silently freezing on stale readings.
 
 Reverse-engineered from the [`misdoro/Electronic_load_px100`](https://github.com/misdoro/Electronic_load_px100)
 protocol notes; see `dl24_reference.py` for the original Python reference
@@ -130,16 +145,32 @@ npm install
 npm run tauri dev
 ```
 
+### Adding translations
+
+UI strings live in `src/i18n/locales/{en,ru,uk}.json`, one flat-ish key tree
+shared across all three - add a key to all three files when adding new UI
+text (`en.json` is the reference). Rust-originated error messages are only
+partially localized: `src/utils/backendErrors.ts` maps the fixed set of known
+backend error strings to translation keys and falls back to the raw English
+text for anything else (e.g. OS-level I/O errors), since the backend doesn't
+send error codes.
+
 ### Build
 
 ```sh
 npm run tauri build
 ```
 
+The frontend bundle is ~760 kB minified (~230 kB gzip), mostly `recharts` and
+its Redux-based internals - well past Vite's default 500 kB chunk-size
+warning, which is raised in `vite.config.ts` since that threshold targets
+assets fetched over a network, not a Tauri bundle loaded from disk.
+
 ### Testing
 
 ```sh
 cd src-tauri && cargo test    # protocol parsing + mocked serial framing
+cd src-tauri && cargo clippy  # Rust lints
 npx tsc --noEmit              # frontend type-checking
 ```
 
