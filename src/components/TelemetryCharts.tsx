@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Download, Pause, Play, RotateCcw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,10 +15,16 @@ interface TelemetryChartsProps {
   power: number[];
   timeRange: TimeRange;
   onTimeRangeChange: (value: TimeRange) => void;
+  // Caps how many points get drawn per chart, independent of how much
+  // history is retained (that's unbounded - see Dashboard's chartDataRef).
+  // Without this, selecting "All" on an hours-long session would hand
+  // recharts tens of thousands of SVG points.
+  maxRenderPoints: number;
   isPaused: boolean;
   onPauseResume: () => void;
   onReset: () => void;
   onExportCsv: () => void;
+  onExportXlsx: () => void;
 }
 
 function rangeSeconds(range: TimeRange): number {
@@ -25,6 +32,20 @@ function rangeSeconds(range: TimeRange): number {
   if (range === '5m') return 300;
   if (range === '15m') return 900;
   return Number.POSITIVE_INFINITY;
+}
+
+// Downsamples to at most maxPoints by taking every Nth point, always keeping
+// the most recent one so the chart's right edge matches the latest reading.
+function decimate<T>(data: T[], maxPoints: number): T[] {
+  if (data.length <= maxPoints) return data;
+  const stride = Math.ceil(data.length / maxPoints);
+  const result: T[] = [];
+  for (let i = 0; i < data.length; i += stride) {
+    result.push(data[i]);
+  }
+  const last = data[data.length - 1];
+  if (result[result.length - 1] !== last) result.push(last);
+  return result;
 }
 
 // Exponential moving average, applied for display only - the raw samples
@@ -53,12 +74,15 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
     power,
     timeRange,
     onTimeRangeChange,
+    maxRenderPoints,
     isPaused,
     onPauseResume,
     onReset,
     onExportCsv,
+    onExportXlsx,
   } = props;
 
+  const { t } = useTranslation();
   const cutoffSec = rangeSeconds(timeRange);
   const last = times.length ? times[times.length - 1] : 0;
   const startWindow = last - cutoffSec;
@@ -66,24 +90,26 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
     cutoffSec === Number.POSITIVE_INFINITY ? 0 : Math.max(0, times.findIndex((t) => t >= startWindow));
 
   const voltageData = useMemo(
-    () => smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: voltage[fromIdx + i] }))),
-    [times, voltage, fromIdx]
+    () => decimate(smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: voltage[fromIdx + i] }))), maxRenderPoints),
+    [times, voltage, fromIdx, maxRenderPoints]
   );
   const currentData = useMemo(
-    () => smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: current[fromIdx + i] }))),
-    [times, current, fromIdx]
+    () => decimate(smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: current[fromIdx + i] }))), maxRenderPoints),
+    [times, current, fromIdx, maxRenderPoints]
   );
   const powerData = useMemo(
-    () => smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: power[fromIdx + i] }))),
-    [times, power, fromIdx]
+    () => decimate(smooth(times.slice(fromIdx).map((t, i) => ({ time: t, value: power[fromIdx + i] }))), maxRenderPoints),
+    [times, power, fromIdx, maxRenderPoints]
   );
 
   return (
     <div className="rounded-xl border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold">Real-time Telemetry</h2>
-          <Badge variant={isPaused ? 'secondary' : 'default'}>{isPaused ? 'Paused' : 'Live'}</Badge>
+          <h2 className="text-sm font-semibold">{t('telemetry.heading')}</h2>
+          <Badge variant={isPaused ? 'secondary' : 'default'}>
+            {isPaused ? t('telemetry.paused') : t('telemetry.live')}
+          </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={timeRange} onValueChange={(v) => onTimeRangeChange(v as TimeRange)}>
@@ -94,7 +120,7 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
               <SelectItem value="30s">30s</SelectItem>
               <SelectItem value="5m">5m</SelectItem>
               <SelectItem value="15m">15m</SelectItem>
-              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all">{t('telemetry.rangeAll')}</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="outline" size="icon" className="size-8" onClick={onPauseResume}>
@@ -105,7 +131,11 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
           </Button>
           <Button variant="outline" size="sm" onClick={onExportCsv} disabled={!hasData}>
             <Download className="size-4" />
-            Export
+            {t('telemetry.exportCsv')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onExportXlsx} disabled={!hasData}>
+            <Download className="size-4" />
+            {t('telemetry.exportXlsx')}
           </Button>
         </div>
       </div>
@@ -113,24 +143,25 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
       {hasData ? (
         <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-3">
           <div className="h-[220px]">
-            <MetricAreaChart data={voltageData} color="#818cf8" unit="V" label="Voltage" />
+            <MetricAreaChart data={voltageData} color="#818cf8" unit="V" id="voltage" label={t('metrics.voltage')} />
           </div>
           <div className="h-[220px]">
             <MetricAreaChart
               data={currentData}
               color="#34d399"
               unit="A"
-              label="Current"
+              id="current"
+              label={t('metrics.current')}
               valueFormatter={(v) => v.toFixed(3)}
             />
           </div>
           <div className="h-[220px]">
-            <MetricAreaChart data={powerData} color="#fbbf24" unit="W" label="Power" />
+            <MetricAreaChart data={powerData} color="#fbbf24" unit="W" id="power" label={t('metrics.power')} />
           </div>
         </div>
       ) : (
         <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
-          Connect to the device to start monitoring
+          {t('telemetry.emptyState')}
         </div>
       )}
     </div>

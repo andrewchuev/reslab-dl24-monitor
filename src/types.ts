@@ -4,7 +4,7 @@ export interface DeviceMetrics {
   voltageV: number | null;
   currentA: number | null;
   capacityMAh: number | null;
-  powerW: string | number | null;
+  powerW: number | null;
   tempC: number | null;
   runtimeS: number | null;
   energyWh: number | null;

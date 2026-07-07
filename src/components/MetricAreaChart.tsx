@@ -4,6 +4,8 @@ interface MetricAreaChartProps {
   data: { time: number; value: number }[];
   color: string;
   unit: string;
+  // Stable, language-independent identifier for the gradient's DOM id.
+  id: string;
   label: string;
   valueFormatter?: (value: number) => string;
 }
@@ -13,6 +15,20 @@ interface MetricAreaChartProps {
 // (typical ADC ripple on a cheap load) gets zoomed in until that ripple
 // fills the whole chart height and reads as noise. Pad the range instead of
 // hugging it.
+// Formats elapsed seconds as m:ss, or h:mm:ss past the first hour - used for
+// both the X-axis ticks and the tooltip header, so hovering a point (or
+// reading the axis) answers "when did this happen" for a session that can
+// run for hours.
+function formatElapsed(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return hh > 0
+    ? `${hh}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
+    : `${mm}:${ss.toString().padStart(2, '0')}`;
+}
+
 function paddedDomain([dataMin, dataMax]: readonly [number, number]): [number, number] {
   if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) return [0, 1];
   const span = dataMax - dataMin;
@@ -25,8 +41,8 @@ function paddedDomain([dataMin, dataMax]: readonly [number, number]): [number, n
   return [Number((dataMin - pad).toFixed(6)), Number((dataMax + pad).toFixed(6))];
 }
 
-export default function MetricAreaChart({ data, color, unit, label, valueFormatter }: MetricAreaChartProps) {
-  const gradientId = `chart-gradient-${label.replace(/\s+/g, '-').toLowerCase()}`;
+export default function MetricAreaChart({ data, color, unit, id, label, valueFormatter }: MetricAreaChartProps) {
+  const gradientId = `chart-gradient-${id}`;
   const format = valueFormatter ?? ((v: number) => v.toFixed(2));
 
   return (
@@ -44,7 +60,16 @@ export default function MetricAreaChart({ data, color, unit, label, valueFormatt
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-          <XAxis dataKey="time" hide />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+            tickLine={false}
+            axisLine={false}
+            minTickGap={40}
+            tickFormatter={(value: number) => formatElapsed(value)}
+          />
           <YAxis
             width={44}
             tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
@@ -60,7 +85,7 @@ export default function MetricAreaChart({ data, color, unit, label, valueFormatt
               borderRadius: 8,
               fontSize: 12,
             }}
-            labelFormatter={() => label}
+            labelFormatter={(value: unknown) => `${label} @ ${formatElapsed(Number(value))}`}
             formatter={(value: unknown) => [format(Number(value)), unit] as [string, string]}
           />
           <Area

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
 import { commands, events } from './bindings';
 import type { ConnectionStatusEvent_Deserialize } from './bindings';
 import ControlCenter from './components/ControlCenter';
@@ -146,6 +147,8 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         });
     };
 
+    const sessionFileBaseName = () => `session-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
     const exportCsv = () => {
         const { times, voltage, current, power } = chartDataRef.current;
         if (!times.length) return;
@@ -157,12 +160,36 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `session-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+        a.download = `${sessionFileBaseName()}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         logAction('export_csv_click', { points: times.length });
+    };
+
+    const exportXlsx = async () => {
+        const { times, voltage, current, power } = chartDataRef.current;
+        if (!times.length) return;
+
+        const path = await save({
+            defaultPath: `${sessionFileBaseName()}.xlsx`,
+            filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+        });
+        if (!path) return; // user cancelled
+
+        try {
+            const result = await commands.exportXlsx(path, times, voltage, current, power);
+            if (result.status === 'error') {
+                console.error('Export XLSX error:', result.error);
+                logError('export_xlsx failed', { error: result.error });
+                return;
+            }
+            logAction('export_xlsx_click', { points: times.length, path });
+        } catch (err) {
+            console.error('Export XLSX error:', err);
+            logError('export_xlsx threw', { error: String(err) });
+        }
     };
 
     const chartSnapshot = useMemo(
@@ -237,19 +264,15 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
                 const seconds = (now - ref.startTime) / 1000;
 
+                // Kept for the whole session, unbounded - this is also the
+                // source for CSV export and the "All" chart range, and a
+                // multi-hour capacity test is only a few MB of floats even at
+                // the fastest poll interval. settings.maxPoints instead caps
+                // how many points TelemetryCharts draws at once (see there).
                 ref.times.push(seconds);
-                ref.voltage.push(Number(payload.voltageV ?? 0));
-                ref.current.push(Number(payload.currentA ?? 0));
-                ref.power.push(Number(payload.powerW ?? 0));
-
-                if (ref.times.length > settings.maxPoints) {
-                    const cut = ref.times.length - settings.maxPoints;
-                    ref.times.splice(0, cut);
-                    ref.voltage.splice(0, cut);
-                    ref.current.splice(0, cut);
-                    ref.power.splice(0, cut);
-                    ref.startTime = now - ref.times[0] * 1000;
-                }
+                ref.voltage.push(payload.voltageV ?? 0);
+                ref.current.push(payload.currentA ?? 0);
+                ref.power.push(payload.powerW ?? 0);
 
                 setHasData(true);
                 scheduleUpdate();
@@ -265,7 +288,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                 });
                 setConnectionStatus(st);
                 setConnected(st.connected);
-                setIsConnecting(st.stage === 'probing');
+                setIsConnecting(st.stage === 'probing' || st.stage === 'reconnecting');
                 if (st.error) console.error('Connection error:', st.error);
             });
 
@@ -295,7 +318,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             unsubDevice?.();
             unsubConn?.();
         };
-    }, [isPaused, settings.maxPoints, settings.chartRefreshMs]);
+    }, [isPaused, settings.chartRefreshMs]);
 
     return (
         <div className="h-full">
@@ -332,10 +355,12 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                             power={chartSnapshot.power}
                             timeRange={timeRange}
                             onTimeRangeChange={setTimeRange}
+                            maxRenderPoints={settings.maxPoints}
                             isPaused={isPaused}
                             onPauseResume={togglePause}
                             onReset={resetChart}
                             onExportCsv={exportCsv}
+                            onExportXlsx={exportXlsx}
                         />
                     </div>
                     <div>

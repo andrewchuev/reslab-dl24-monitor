@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import type { AppSettings } from '../types';
@@ -8,10 +9,12 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <Label>Poll interval: {settings.pollIntervalMs} ms</Label>
+        <Label>{t('settingsPanel.pollInterval', { value: settings.pollIntervalMs })}</Label>
         <Slider
           value={[settings.pollIntervalMs]}
           min={300}
@@ -22,7 +25,7 @@ export default function SettingsPanel({ settings, onChange }: SettingsPanelProps
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Chart refresh throttle: {settings.chartRefreshMs} ms</Label>
+        <Label>{t('settingsPanel.chartRefresh', { value: settings.chartRefreshMs })}</Label>
         <Slider
           value={[settings.chartRefreshMs]}
           min={100}
@@ -33,7 +36,8 @@ export default function SettingsPanel({ settings, onChange }: SettingsPanelProps
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Max chart points: {settings.maxPoints}</Label>
+        <Label>{t('settingsPanel.maxPoints', { value: settings.maxPoints })}</Label>
+        <p className="text-xs text-muted-foreground">{t('settingsPanel.maxPointsHint')}</p>
         <Slider
           value={[settings.maxPoints]}
           min={50}
