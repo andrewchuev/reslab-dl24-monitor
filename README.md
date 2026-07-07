@@ -114,6 +114,15 @@ are the `HH`, `MM`, `SS` bytes directly.
   re-probes it, up to 5 attempts with a 2 s backoff. Success resumes polling
   transparently; exhausting all attempts reports a connection error and
   stops, instead of the UI silently freezing on stale readings.
+- The UI's poll interval slider allows down to 300 ms, but that floor isn't
+  actually reachable: a full cycle (6 queries: 5 frequent + 1 round-robin)
+  measured 529-678 ms end to end on real hardware (DL24P, Bluetooth-serial
+  bridge, 20 clean cycles, no retries) - roughly 47 ms per query just for
+  the pre-read buffer clear, plus 29-104 ms (51 ms average) of the device's
+  own response latency, which is well above what 9600 baud transmission
+  time alone would suggest. Setting the interval below ~550-600 ms doesn't
+  poll any faster; the protocol round-trip is the bottleneck, not the
+  configured interval.
 
 Reverse-engineered from the [`misdoro/Electronic_load_px100`](https://github.com/misdoro/Electronic_load_px100)
 protocol notes; see `dl24_reference.py` for the original Python reference

@@ -3,8 +3,8 @@ import type { AppSettings } from '../types';
 const SETTINGS_KEY = 'tauri-monitor-settings-v1';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  pollIntervalMs: 1500,
-  chartRefreshMs: 600,
+  pollIntervalMs: 1000,
+  chartRefreshMs: 1000,
   maxPoints: 400,
 };
 

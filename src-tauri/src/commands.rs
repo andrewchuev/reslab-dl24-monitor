@@ -16,7 +16,7 @@ use tauri_specta::Event;
 
 const PROBE_ATTEMPTS: u8 = 3;
 const PROBE_RETRY_DELAY_MS: u64 = 250;
-const POLL_INTERVAL_DEFAULT_MS: u32 = 1500;
+const POLL_INTERVAL_DEFAULT_MS: u32 = 1000;
 const POLL_INTERVAL_MIN_MS: u32 = 300;
 const POLL_INTERVAL_MAX_MS: u32 = 10000;
 /// How long a Tauri control command waits for the worker thread to execute a
