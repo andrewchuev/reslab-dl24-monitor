@@ -7,6 +7,7 @@
     "core:default",
     "core:webview:allow-set-webview-zoom",
     "log:default",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "blec:default"
   ]
 }

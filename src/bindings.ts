@@ -7,6 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	listPorts: () => __TAURI_INVOKE<string[]>("list_ports"),
 	connectPort: (portPath: string, pollIntervalMs: number | null) => typedError<null, string>(__TAURI_INVOKE("connect_port", { portPath, pollIntervalMs })),
+	connectBle: (address: string, pollIntervalMs: number | null) => typedError<null, string>(__TAURI_INVOKE("connect_ble", { address, pollIntervalMs })),
 	disconnectPort: () => typedError<null, string>(__TAURI_INVOKE("disconnect_port")),
 	setLoadOn: (on: boolean) => typedError<null, string>(__TAURI_INVOKE("set_load_on", { on })),
 	setCurrent: (amps: number | null) => typedError<null, string>(__TAURI_INVOKE("set_current", { amps })),
@@ -14,6 +15,16 @@ export const commands = {
 	setTimeoutSeconds: (seconds: number) => typedError<null, string>(__TAURI_INVOKE("set_timeout_seconds", { seconds })),
 	resetCounters: () => typedError<null, string>(__TAURI_INVOKE("reset_counters")),
 	exportXlsx: (path: string, timestampsMs: (number | null)[], voltage: (number | null)[], current: (number | null)[], power: (number | null)[]) => typedError<null, string>(__TAURI_INVOKE("export_xlsx", { path, timestampsMs, voltage, current, power })),
+	listBleDevices: () => typedError<BleDeviceInfo[], string>(__TAURI_INVOKE("list_ble_devices")),
+	bleScan: () => typedError<BleDeviceInfo[], string>(__TAURI_INVOKE("ble_scan")),
+	/**
+	 *  Connects to `address`, subscribes to FFE1 notifications, sends a B1B2
+	 *  voltage query (read) and a B1B2 reset-counters command (write), then
+	 *  disconnects. Returns every notification received in between as hex
+	 *  strings - if the reset-counters write produced an ACK-shaped reply the
+	 *  same way it does over SPP, BLE control is viable.
+	 */
+	bleProbe: (address: string) => typedError<string[], string>(__TAURI_INVOKE("ble_probe", { address })),
 };
 
 /** Events */
@@ -23,6 +34,12 @@ export const events = {
 };
 
 /* Types */
+export type BleDeviceInfo = {
+	name: string,
+	address: string,
+	rssi: number | null,
+};
+
 export type ConnectionStatusEvent = ConnectionStatusEvent_Serialize | ConnectionStatusEvent_Deserialize;
 
 export type ConnectionStatusEvent_Deserialize = {

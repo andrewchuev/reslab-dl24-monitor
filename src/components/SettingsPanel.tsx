@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import type { AppSettings } from '../types';
+import BleTestPanel from './BleTestPanel';
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -56,6 +57,8 @@ export default function SettingsPanel({ settings, onChange }: SettingsPanelProps
           onValueChange={([value]) => onChange({ ...settings, maxPoints: value })}
         />
       </div>
+
+      <BleTestPanel />
     </div>
   );
 }

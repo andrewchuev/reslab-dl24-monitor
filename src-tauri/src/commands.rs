@@ -1,10 +1,12 @@
 //! Tauri commands and the device-data / connection-status events emitted to the frontend.
 
+use crate::ble;
 use crate::protocol::{self, Val};
 use crate::serial::{self, DataStore};
 use crate::state::{AppState, ControlCommand, WorkerEvent};
 use anyhow::{Context, Result};
 use serde::Serialize;
+use serialport::SerialPort;
 use specta::Type;
 use std::{
     sync::{atomic::Ordering, mpsc, mpsc::RecvTimeoutError},
@@ -193,6 +195,66 @@ pub fn connect_port(
         return Ok(());
     }
 
+    let label = port_path.clone();
+    let open = move || -> Result<Box<dyn SerialPort>> {
+        serialport::new(&port_path, serial::BAUD)
+            .data_bits(serialport::DataBits::Eight)
+            .stop_bits(serialport::StopBits::One)
+            .parity(serialport::Parity::None)
+            .timeout(Duration::from_millis(serial::COMMAND_TIMEOUT_MS))
+            .open()
+            .with_context(|| format!("Failed to open port {port_path}"))
+    };
+
+    spawn_worker(app, &state, poll_interval_ms, label, open);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn connect_ble(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    address: String,
+    poll_interval_ms: Option<u32>,
+) -> Result<(), String> {
+    disconnect_port(app.clone(), state.clone())?;
+
+    if address.trim().is_empty() {
+        emit_connection(
+            &app,
+            false,
+            Some("No device selected".into()),
+            Some("validation".into()),
+            None,
+            None,
+        );
+        return Ok(());
+    }
+
+    let label = address.clone();
+    let open = move || -> Result<Box<dyn SerialPort>> {
+        ble::BleSerialPort::connect(&address).map(|p| Box::new(p) as Box<dyn SerialPort>)
+    };
+
+    spawn_worker(app, &state, poll_interval_ms, label, open);
+    Ok(())
+}
+
+/// Shared worker-thread setup for both transports: probes the freshly opened
+/// port, then polls it on `poll_interval_ms` until told to stop, restarting
+/// via `open` on a stall exactly like the previous serial-only
+/// implementation did. `open` is called once up front and again on every
+/// reconnect attempt, so it must be safely callable more than once (e.g. a
+/// fresh `serialport::new(...).open()` or `BleSerialPort::connect(...)` per
+/// call, not something that only works the first time).
+fn spawn_worker(
+    app: AppHandle,
+    state: &State<'_, AppState>,
+    poll_interval_ms: Option<u32>,
+    label: String,
+    open: impl Fn() -> Result<Box<dyn SerialPort>> + Send + 'static,
+) {
     let mut mon = state.monitor.lock();
     let stop = mon.stop_flag.clone();
     let (command_tx, command_rx) = mpsc::channel::<WorkerEvent>();
@@ -205,13 +267,7 @@ pub fn connect_port(
 
     mon.worker = Some(thread::spawn(move || {
         let res: Result<()> = (|| {
-            let mut port = serialport::new(&port_path, serial::BAUD)
-                .data_bits(serialport::DataBits::Eight)
-                .stop_bits(serialport::StopBits::One)
-                .parity(serialport::Parity::None)
-                .timeout(Duration::from_millis(serial::COMMAND_TIMEOUT_MS))
-                .open()
-                .with_context(|| format!("Failed to open port {port_path}"))?;
+            let mut port = open()?;
 
             emit_connection(
                 &app_for_thread,
@@ -243,7 +299,7 @@ pub fn connect_port(
             }
 
             if !probe_ok {
-                log::warn!("probe failed on port {port_path} after {PROBE_ATTEMPTS} attempts");
+                log::warn!("probe failed on {label} after {PROBE_ATTEMPTS} attempts");
                 emit_connection(
                     &app_for_thread,
                     false,
@@ -255,7 +311,7 @@ pub fn connect_port(
                 return Ok(());
             }
 
-            log::info!("connected to {port_path}");
+            log::info!("connected to {label}");
             emit_connection(&app_for_thread, true, None, Some("connected".into()), None, None);
 
             let mut ds = DataStore {
@@ -308,9 +364,9 @@ pub fn connect_port(
                 }
 
                 log::error!(
-                    "no data from {port_path} for {stalled_cycles} consecutive poll cycles, attempting to reconnect"
+                    "no data from {label} for {stalled_cycles} consecutive poll cycles, attempting to reconnect"
                 );
-                match reconnect(&port_path, &app_for_thread, &stop) {
+                match reconnect(&open, &label, &app_for_thread, &stop) {
                     Some(new_port) => {
                         port = new_port;
                         stalled_cycles = 0;
@@ -321,7 +377,7 @@ pub fn connect_port(
                             break;
                         }
                         log::error!(
-                            "gave up reconnecting to {port_path} after {RECONNECT_ATTEMPTS} attempts"
+                            "gave up reconnecting to {label} after {RECONNECT_ATTEMPTS} attempts"
                         );
                         emit_connection(
                             &app_for_thread,
@@ -340,7 +396,7 @@ pub fn connect_port(
         })();
 
         if let Err(e) = res {
-            log::error!("monitor thread for {port_path} exited with error: {e}");
+            log::error!("monitor thread for {label} exited with error: {e}");
             emit_connection(
                 &app_for_thread,
                 false,
@@ -351,21 +407,21 @@ pub fn connect_port(
             );
         }
     }));
-
-    Ok(())
 }
 
-/// Reopens `port_path` and confirms the device responds, retrying up to
-/// `RECONNECT_ATTEMPTS` times with a backoff between attempts. Called once the
-/// poll loop has gone quiet for `STALL_CYCLES_BEFORE_RECONNECT` cycles straight,
-/// e.g. because the USB-serial adapter dropped out. Returns `None` either
-/// because `stop` fired mid-retry (disconnect requested) or every attempt
-/// failed; the caller tells the two apart by checking `stop` itself.
+/// Reopens the port via `open` and confirms the device responds, retrying up
+/// to `RECONNECT_ATTEMPTS` times with a backoff between attempts. Called once
+/// the poll loop has gone quiet for `STALL_CYCLES_BEFORE_RECONNECT` cycles
+/// straight (e.g. the USB-serial adapter dropped out, or the BLE link
+/// disconnected). Returns `None` either because `stop` fired mid-retry
+/// (disconnect requested) or every attempt failed; the caller tells the two
+/// apart by checking `stop` itself.
 fn reconnect(
-    port_path: &str,
+    open: &(impl Fn() -> Result<Box<dyn SerialPort>> + Send),
+    label: &str,
     app: &AppHandle,
     stop: &std::sync::atomic::AtomicBool,
-) -> Option<Box<dyn serialport::SerialPort>> {
+) -> Option<Box<dyn SerialPort>> {
     for attempt in 1..=RECONNECT_ATTEMPTS {
         if stop.load(Ordering::SeqCst) {
             return None;
@@ -379,18 +435,12 @@ fn reconnect(
             Some(attempt),
             Some(RECONNECT_ATTEMPTS),
         );
-        log::warn!("reconnect attempt {attempt}/{RECONNECT_ATTEMPTS} for {port_path}");
+        log::warn!("reconnect attempt {attempt}/{RECONNECT_ATTEMPTS} for {label}");
 
-        if let Ok(mut new_port) = serialport::new(port_path, serial::BAUD)
-            .data_bits(serialport::DataBits::Eight)
-            .stop_bits(serialport::StopBits::One)
-            .parity(serialport::Parity::None)
-            .timeout(Duration::from_millis(serial::COMMAND_TIMEOUT_MS))
-            .open()
-        {
+        if let Ok(mut new_port) = open() {
             if let Ok(Some(Val::Num(_))) = serial::get_val(&mut *new_port, protocol::VOLTAGE, 1, stop)
             {
-                log::info!("reconnected to {port_path} after {attempt} attempt(s)");
+                log::info!("reconnected to {label} after {attempt} attempt(s)");
                 return Some(new_port);
             }
         }

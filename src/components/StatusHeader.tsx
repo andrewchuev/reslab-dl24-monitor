@@ -7,19 +7,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import type { TFunction } from 'i18next';
-import type { ConnectionStatusEvent_Deserialize } from '../bindings';
+import type { BleDeviceInfo, ConnectionStatusEvent_Deserialize } from '../bindings';
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../i18n';
 import type { AppSettings } from '../types';
 import { translateBackendError } from '../utils/backendErrors';
+import type { TransportKind } from '../utils/lastPort';
 import SettingsPanel from './SettingsPanel';
 
 type ConnectionStatus = Partial<ConnectionStatusEvent_Deserialize>;
 
 interface StatusHeaderProps {
+  transport: TransportKind;
+  onTransportChange: (transport: TransportKind) => void;
   ports: string[];
   selectedPort: string | null;
   onSelectPort: (port: string) => void;
   onRefresh: () => void;
+  bleDevices: BleDeviceInfo[];
+  selectedBleAddress: string | null;
+  onSelectBleAddress: (address: string) => void;
+  onScanBle: () => void;
+  bleScanning: boolean;
   onConnectToggle: () => void;
   connected: boolean;
   isConnecting: boolean;
@@ -29,6 +37,11 @@ interface StatusHeaderProps {
   status: ConnectionStatus;
   settings: AppSettings;
   onSettingsChange: (next: AppSettings) => void;
+}
+
+function bleDeviceLabel(d: BleDeviceInfo): string {
+  const name = d.name || d.address;
+  return d.rssi != null ? `${name} (${d.rssi} dBm)` : name;
 }
 
 const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
@@ -58,10 +71,17 @@ function stageLabel(t: TFunction, status: ConnectionStatus, selectedPort: string
 
 export default function StatusHeader(props: StatusHeaderProps) {
   const {
+    transport,
+    onTransportChange,
     ports,
     selectedPort,
     onSelectPort,
     onRefresh,
+    bleDevices,
+    selectedBleAddress,
+    onSelectBleAddress,
+    onScanBle,
+    bleScanning,
     onConnectToggle,
     connected,
     isConnecting,
@@ -76,6 +96,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
   const { t, i18n } = useTranslation();
   const busy = isConnecting || isAutoDetecting;
   const displayedError = translateBackendError(t, status.error);
+  const hasSelection = transport === 'serial' ? Boolean(selectedPort) : Boolean(selectedBleAddress);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">
@@ -98,27 +119,73 @@ export default function StatusHeader(props: StatusHeaderProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
-          <SelectTrigger className="h-9 w-[150px]">
-            <SelectValue placeholder={t('status.selectPort')} />
-          </SelectTrigger>
-          <SelectContent>
-            {ports.map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center rounded-md border p-0.5">
+          <Button
+            variant={transport === 'serial' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8"
+            disabled={connected || busy}
+            onClick={() => onTransportChange('serial')}
+          >
+            {t('status.transportSerial')}
+          </Button>
+          <Button
+            variant={transport === 'ble' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8"
+            disabled={connected || busy}
+            onClick={() => onTransportChange('ble')}
+          >
+            {t('status.transportBle')}
+          </Button>
+        </div>
 
-        <Button variant="outline" size="icon" className="size-9" onClick={onRefresh} disabled={busy}>
-          <RefreshCw className="size-4" />
+        {transport === 'serial' ? (
+          <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
+            <SelectTrigger className="h-9 w-[150px]">
+              <SelectValue placeholder={t('status.selectPort')} />
+            </SelectTrigger>
+            <SelectContent>
+              {ports.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select value={selectedBleAddress ?? ''} onValueChange={onSelectBleAddress} disabled={connected || busy}>
+            <SelectTrigger className="h-9 w-[200px]">
+              <SelectValue placeholder={t('status.selectDevice')} />
+            </SelectTrigger>
+            <SelectContent>
+              {bleDevices.map((d) => (
+                <SelectItem key={d.address} value={d.address}>
+                  {bleDeviceLabel(d)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-9"
+          onClick={transport === 'serial' ? onRefresh : onScanBle}
+          disabled={busy || bleScanning}
+        >
+          {transport === 'ble' && bleScanning ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <RefreshCw className="size-4" />
+          )}
         </Button>
 
         <Button
           variant={connected ? 'destructive' : 'default'}
           onClick={onConnectToggle}
-          disabled={busy || (!selectedPort && !connected)}
+          disabled={busy || (!hasSelection && !connected)}
         >
           {busy && <Loader2 className="size-4 animate-spin" />}
           {isAutoDetecting

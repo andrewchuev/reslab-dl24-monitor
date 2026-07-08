@@ -31,6 +31,9 @@ specta = "2.0.0-rc.25"
 specta-typescript = "0.0.12"
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
 rust_xlsxwriter = "0.96"
+tauri-plugin-blec = "0.12"
+uuid = "1"
+tokio = { version = "1", features = ["time"] }
 
 # https://v2.tauri.app/concept/size/ - smaller, faster release binaries.
 # panic = "abort" is intentionally omitted: disconnect_port relies on

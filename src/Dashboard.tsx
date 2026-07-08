@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { commands, events } from './bindings';
-import type { ConnectionStatusEvent_Deserialize } from './bindings';
+import type { BleDeviceInfo, ConnectionStatusEvent_Deserialize } from './bindings';
 import ControlCenter from './components/ControlCenter';
 import HeroMetrics from './components/HeroMetrics';
 import SecondaryMetrics from './components/SecondaryMetrics';
 import StatusHeader from './components/StatusHeader';
 import TelemetryCharts from './components/TelemetryCharts';
 import type { AppSettings, DeviceMetrics, TimeRange } from './types';
-import { loadLastPort, saveLastPort } from './utils/lastPort';
+import { loadLastConnection, saveLastConnection, type TransportKind } from './utils/lastPort';
 import { logAction, logError, logInfo } from './utils/log';
 import { buildCandidateQueue } from './utils/ports';
 import { loadSettings, saveSettings } from './utils/settings';
@@ -40,11 +40,17 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
     const [connected, setConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
+    const [transport, setTransport] = useState<TransportKind>('serial');
     const [ports, setPorts] = useState<string[]>([]);
     const [selectedPort, setSelectedPort] = useState<string | null>(null);
+    const [bleDevices, setBleDevices] = useState<BleDeviceInfo[]>([]);
+    const [selectedBleAddress, setSelectedBleAddress] = useState<string | null>(null);
+    const [bleScanning, setBleScanning] = useState(false);
     // Remaining candidate ports to try, in order, while auto-detecting the
     // device on startup. null means "not auto-detecting" (idle, or a manual
-    // connect is in progress).
+    // connect is in progress). Serial-only - BLE auto-reconnect is a single
+    // attempt at the remembered address, not a multi-candidate queue (BLE
+    // scanning is slower and noisier than COM-port enumeration).
     const [autoDetectQueue, setAutoDetectQueue] = useState<string[] | null>(null);
     const [hasData, setHasData] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
@@ -86,27 +92,58 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         }
     }
 
-    async function handleConnect(portOverride?: string) {
-        const port = portOverride ?? selectedPort;
-        if (!port || connected) return;
-        logAction('connect_click', { port, pollIntervalMs: settings.pollIntervalMs });
+    async function runConnect(action: () => Promise<{ status: 'ok' | 'error'; error?: string }>) {
         setIsConnecting(true);
         setConnectionStatus({ connected: false, stage: 'probing', attempt: 0 });
         chartDataRef.current = { times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         try {
-            const result = await commands.connectPort(port, settings.pollIntervalMs);
+            const result = await action();
             if (result.status === 'error') {
                 console.error('Connection error:', result.error);
-                logError('connect_port failed', { error: result.error });
+                logError('connect failed', { error: result.error });
                 setConnectionStatus({ connected: false, error: result.error, stage: 'error' });
             }
         } catch (err) {
             console.error('Connection error:', err);
-            logError('connect_port threw', { error: String(err) });
+            logError('connect threw', { error: String(err) });
             setConnectionStatus({ connected: false, error: String(err), stage: 'error' });
         } finally {
             setIsConnecting(false);
+        }
+    }
+
+    async function handleConnect(portOverride?: string) {
+        const port = portOverride ?? selectedPort;
+        if (!port || connected) return;
+        logAction('connect_click', { port, pollIntervalMs: settings.pollIntervalMs });
+        await runConnect(() => commands.connectPort(port, settings.pollIntervalMs));
+    }
+
+    async function handleConnectBle(addressOverride?: string) {
+        const address = addressOverride ?? selectedBleAddress;
+        if (!address || connected) return;
+        logAction('connect_ble_click', { address, pollIntervalMs: settings.pollIntervalMs });
+        await runConnect(() => commands.connectBle(address, settings.pollIntervalMs));
+    }
+
+    async function handleScanBle() {
+        setBleScanning(true);
+        logAction('ble_scan_click');
+        try {
+            const result = await commands.listBleDevices();
+            if (result.status === 'error') {
+                console.error('BLE scan error:', result.error);
+                logError('list_ble_devices failed', { error: result.error });
+                return;
+            }
+            setBleDevices(result.data);
+            logAction('ble_scan_result', { found: result.data.map((d) => `${d.name} (${d.address})`) });
+        } catch (err) {
+            console.error('BLE scan error:', err);
+            logError('list_ble_devices threw', { error: String(err) });
+        } finally {
+            setBleScanning(false);
         }
     }
 
@@ -234,13 +271,13 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         }
     }, [connectionStatus]);
 
-    // Remembers whichever port last connected successfully, regardless of
-    // whether that came from auto-detect or a manual pick.
+    // Remembers whichever port/device last connected successfully, regardless
+    // of whether that came from auto-detect or a manual pick.
     useEffect(() => {
-        if (connectionStatus.stage === 'connected' && selectedPort) {
-            saveLastPort(selectedPort);
-        }
-    }, [connectionStatus.stage, selectedPort]);
+        if (connectionStatus.stage !== 'connected') return;
+        const value = transport === 'serial' ? selectedPort : selectedBleAddress;
+        if (value) saveLastConnection({ kind: transport, value });
+    }, [connectionStatus.stage, transport, selectedPort, selectedBleAddress]);
 
     useEffect(() => {
         saveSettings(settings);
@@ -303,15 +340,27 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             // (e.g. when settings change) doesn't restart the scan.
             if (!autoDetectStartedRef.current) {
                 autoDetectStartedRef.current = true;
-                const list = await fetchPorts();
-                if (list.length > 0) {
-                    const lastPort = loadLastPort();
-                    const queue = buildCandidateQueue(list, lastPort);
-                    const [first, ...rest] = queue;
-                    setSelectedPort(first);
-                    setAutoDetectQueue(rest);
-                    logAction('auto_detect_start', { candidates: queue, lastPort });
-                    handleConnect(first);
+                const last = loadLastConnection();
+
+                if (last?.kind === 'ble') {
+                    // BLE auto-reconnect is a single attempt at the
+                    // remembered address, not a multi-candidate queue like
+                    // serial - see the `autoDetectQueue` comment above.
+                    setTransport('ble');
+                    setSelectedBleAddress(last.value);
+                    logAction('auto_detect_start_ble', { address: last.value });
+                    handleConnectBle(last.value);
+                } else {
+                    const list = await fetchPorts();
+                    if (list.length > 0) {
+                        const lastPort = last?.kind === 'serial' ? last.value : null;
+                        const queue = buildCandidateQueue(list, lastPort);
+                        const [first, ...rest] = queue;
+                        setSelectedPort(first);
+                        setAutoDetectQueue(rest);
+                        logAction('auto_detect_start', { candidates: queue, lastPort });
+                        handleConnect(first);
+                    }
                 }
             }
         })();
@@ -327,11 +376,20 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 md:gap-8 md:py-6 lg:px-8">
                 <section className="w-full">
                     <StatusHeader
+                        transport={transport}
+                        onTransportChange={setTransport}
                         ports={ports}
                         selectedPort={selectedPort}
                         onSelectPort={setSelectedPort}
                         onRefresh={fetchPorts}
-                        onConnectToggle={connected ? handleDisconnect : () => handleConnect()}
+                        bleDevices={bleDevices}
+                        selectedBleAddress={selectedBleAddress}
+                        onSelectBleAddress={setSelectedBleAddress}
+                        onScanBle={handleScanBle}
+                        bleScanning={bleScanning}
+                        onConnectToggle={
+                            connected ? handleDisconnect : transport === 'serial' ? () => handleConnect() : () => handleConnectBle()
+                        }
                         connected={connected}
                         isConnecting={isConnecting}
                         isAutoDetecting={autoDetectQueue !== null}

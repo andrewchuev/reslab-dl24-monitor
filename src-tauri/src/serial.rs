@@ -45,6 +45,13 @@ pub struct DataStore {
     pub set_timer: String,
 }
 
+/// Formats bytes as space-separated uppercase hex, e.g. `[0xB1, 0x02]` -> `"B1 02"`.
+/// Used to log raw wire traffic for protocol/transport diagnostics (e.g.
+/// comparing SPP vs. BLE framing on the same hardware).
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+}
+
 pub fn clear_buffer(port: &mut dyn SerialPort) -> Result<()> {
     // Rough equivalent of a flush+read loop:
     // set a very small timeout and keep reading until nothing is left.
@@ -57,7 +64,7 @@ pub fn clear_buffer(port: &mut dyn SerialPort) -> Result<()> {
     loop {
         match port.read(&mut tmp) {
             Ok(n) if n > 0 => {
-                // swallowed
+                log::debug!("RX (discarded stale, {n}B): {}", hex(&tmp[..n]));
             }
             _ => break,
         }
@@ -74,6 +81,7 @@ pub fn send_command(
     stop: &AtomicBool,
 ) -> Result<Vec<u8>> {
     let frame = [HEADER[0], HEADER[1], command, d1, d2, TRAILER];
+    log::debug!("TX: {}", hex(&frame));
     port.write_all(&frame)?;
     port.flush()?;
 
@@ -94,6 +102,7 @@ pub fn send_command(
         }
         match port.read(&mut chunk) {
             Ok(n) if n > 0 => {
+                log::debug!("RX: {}", hex(&chunk[..n]));
                 buffer.extend_from_slice(&chunk[..n]);
 
                 // Loops (instead of checking once) so a false header match

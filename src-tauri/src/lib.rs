@@ -1,3 +1,5 @@
+mod ble;
+mod ble_test;
 mod commands;
 mod export;
 mod logging;
@@ -15,6 +17,7 @@ pub fn run() {
         .commands(collect_commands![
             commands::list_ports,
             commands::connect_port,
+            commands::connect_ble,
             commands::disconnect_port,
             commands::set_load_on,
             commands::set_current,
@@ -22,6 +25,9 @@ pub fn run() {
             commands::set_timeout_seconds,
             commands::reset_counters,
             export::export_xlsx,
+            ble::list_ble_devices,
+            ble_test::ble_scan,
+            ble_test::ble_probe,
         ])
         .events(collect_events![DeviceDataEvent, ConnectionStatusEvent]);
 
@@ -34,6 +40,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_blec::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 // Third-party crates stay quiet at Info; our own code (backend
