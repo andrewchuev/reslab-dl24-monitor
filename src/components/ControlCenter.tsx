@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2, Power, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -29,21 +29,34 @@ interface ControlCenterProps {
 
 type CommandResult = Awaited<ReturnType<typeof commands.resetCounters>>;
 
-async function runCommand(label: string, action: () => Promise<CommandResult>, successMessage: string) {
+/** Runs a backend command and reports the outcome via toast. Returns whether it succeeded. */
+async function runCommand(
+  label: string,
+  action: () => Promise<CommandResult>,
+  successMessage: string
+): Promise<boolean> {
   logAction(`control_center.${label}`);
   try {
     const result = await action();
     if (result.status === 'error') {
       logError(`control_center.${label} failed`, { error: result.error });
       toast.error(result.error);
-    } else {
-      toast.success(successMessage);
+      return false;
     }
+    toast.success(successMessage);
+    return true;
   } catch (err) {
     logError(`control_center.${label} threw`, { error: String(err) });
     toast.error(String(err));
+    return false;
   }
 }
+
+// The backend command replying doesn't mean the load has actually switched -
+// that's only confirmed once telemetry reports the new `isOn` state. Give up
+// waiting after this long so a dropped event can't leave the button spinning
+// forever.
+const TOGGLE_CONFIRM_TIMEOUT_MS = 4000;
 
 type PendingAction = 'toggle' | 'current' | 'cutoff' | 'timeout' | 'reset' | null;
 
@@ -57,10 +70,15 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
   const [cutoffInput, setCutoffInput] = useState('');
   const [timeoutInput, setTimeoutInput] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // Target isOn value we're waiting for telemetry to confirm after a
+  // successful set_load_on call. Kept separate from pendingAction so the
+  // toggle button stays disabled/spinning until the device actually reports
+  // the new state, not just until the command round-trip completes.
+  const [awaitingIsOn, setAwaitingIsOn] = useState<boolean | null>(null);
 
   const disabled = !connected || pendingAction !== null;
 
-  async function withPending(action: PendingAction, fn: () => Promise<void>) {
+  async function withPending(action: PendingAction, fn: () => Promise<boolean>) {
     setPendingAction(action);
     try {
       await fn();
@@ -69,14 +87,46 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
     }
   }
 
-  const handleToggleLoad = () =>
-    withPending('toggle', () =>
-      runCommand(
-        `set_load_on(${!data.isOn})`,
-        () => commands.setLoadOn(!data.isOn),
-        data.isOn ? t('controlCenter.toastLoadOff') : t('controlCenter.toastLoadOn')
-      )
-    );
+  // Clears the toggle's pending state once telemetry confirms the load
+  // actually switched, or after a timeout if it never does.
+  useEffect(() => {
+    if (awaitingIsOn === null) return;
+    if (data.isOn === awaitingIsOn) {
+      setAwaitingIsOn(null);
+      setPendingAction(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setAwaitingIsOn(null);
+      setPendingAction(null);
+    }, TOGGLE_CONFIRM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [data.isOn, awaitingIsOn]);
+
+  // A disconnect mid-toggle means no more telemetry will ever confirm the
+  // pending state - don't leave the button stuck spinning.
+  useEffect(() => {
+    if (!connected) {
+      setAwaitingIsOn(null);
+      setPendingAction(null);
+    }
+  }, [connected]);
+
+  const handleToggleLoad = () => {
+    const target = !data.isOn;
+    setPendingAction('toggle');
+    runCommand(
+      `set_load_on(${target})`,
+      () => commands.setLoadOn(target),
+      target ? t('controlCenter.toastLoadOn') : t('controlCenter.toastLoadOff')
+    ).then((ok) => {
+      if (ok) {
+        setAwaitingIsOn(target);
+      } else {
+        setPendingAction(null);
+      }
+    });
+  };
 
   const handleSetCurrent = () => {
     const amps = parseFloat(currentInput);

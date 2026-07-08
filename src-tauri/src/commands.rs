@@ -273,10 +273,12 @@ pub fn connect_port(
                 // for up to poll_ms.
                 match command_rx.recv_timeout(poll_interval) {
                     Ok(WorkerEvent::Stop) => break,
-                    Ok(WorkerEvent::Control(cmd)) => {
-                        handle_control_command(&mut *port, cmd, &stop);
-                        continue;
-                    }
+                    // Falls through to the read/emit below instead of
+                    // looping back to recv_timeout, so a control command
+                    // (e.g. toggling the load) is reflected in the next
+                    // emitted DeviceDataEvent right away instead of up to a
+                    // full poll_interval later.
+                    Ok(WorkerEvent::Control(cmd)) => handle_control_command(&mut *port, cmd, &stop),
                     Err(RecvTimeoutError::Disconnected) => break,
                     Err(RecvTimeoutError::Timeout) => {}
                 }
