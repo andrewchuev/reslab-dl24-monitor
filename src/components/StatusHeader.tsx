@@ -99,7 +99,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
   const hasSelection = transport === 'serial' ? Boolean(selectedPort) : Boolean(selectedBleAddress);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">
+    <div className="flex flex-col gap-4 rounded-xl border bg-card px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
         <div className="flex size-9 items-center justify-center rounded-lg border bg-muted text-primary">
           <Cpu className="size-5" />
@@ -118,97 +118,103 @@ export default function StatusHeader(props: StatusHeaderProps) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center rounded-md border p-0.5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex items-center rounded-md border p-0.5">
+            <Button
+              variant={transport === 'serial' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-9"
+              disabled={connected || busy}
+              onClick={() => onTransportChange('serial')}
+            >
+              {t('status.transportSerial')}
+            </Button>
+            <Button
+              variant={transport === 'ble' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-9"
+              disabled={connected || busy}
+              onClick={() => onTransportChange('ble')}
+            >
+              {t('status.transportBle')}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+          {transport === 'serial' ? (
+            <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
+              <SelectTrigger className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none">
+                <SelectValue placeholder={t('status.selectPort')} />
+              </SelectTrigger>
+              <SelectContent>
+                {ports.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select value={selectedBleAddress ?? ''} onValueChange={onSelectBleAddress} disabled={connected || busy}>
+              <SelectTrigger className="h-9 min-w-0 flex-1 sm:w-[200px] sm:flex-none">
+                <SelectValue placeholder={t('status.selectDevice')} />
+              </SelectTrigger>
+              <SelectContent>
+                {bleDevices.map((d) => (
+                  <SelectItem key={d.address} value={d.address}>
+                    {bleDeviceLabel(d)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           <Button
-            variant={transport === 'serial' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8"
-            disabled={connected || busy}
-            onClick={() => onTransportChange('serial')}
+            variant="outline"
+            size="icon"
+            className="size-9 shrink-0"
+            onClick={transport === 'serial' ? onRefresh : onScanBle}
+            disabled={busy || bleScanning}
           >
-            {t('status.transportSerial')}
+            {transport === 'ble' && bleScanning ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
           </Button>
-          <Button
-            variant={transport === 'ble' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8"
-            disabled={connected || busy}
-            onClick={() => onTransportChange('ble')}
-          >
-            {t('status.transportBle')}
-          </Button>
+          </div>
         </div>
 
-        {transport === 'serial' ? (
-          <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
-            <SelectTrigger className="h-9 w-[150px]">
-              <SelectValue placeholder={t('status.selectPort')} />
-            </SelectTrigger>
-            <SelectContent>
-              {ports.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {p}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Select value={selectedBleAddress ?? ''} onValueChange={onSelectBleAddress} disabled={connected || busy}>
-            <SelectTrigger className="h-9 w-[200px]">
-              <SelectValue placeholder={t('status.selectDevice')} />
-            </SelectTrigger>
-            <SelectContent>
-              {bleDevices.map((d) => (
-                <SelectItem key={d.address} value={d.address}>
-                  {bleDeviceLabel(d)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant={connected ? 'destructive' : 'default'}
+            className="flex-1 sm:flex-none"
+            onClick={onConnectToggle}
+            disabled={busy || (!hasSelection && !connected)}
+          >
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            {isAutoDetecting
+              ? t('status.detectingButton')
+              : status.stage === 'reconnecting'
+                ? t('status.reconnectingButton')
+                : isConnecting
+                  ? connected
+                    ? t('status.disconnectingButton')
+                    : t('status.connectingButton')
+                  : connected
+                    ? t('status.disconnectButton')
+                    : t('status.connectButton')}
+          </Button>
 
-        <Button
-          variant="outline"
-          size="icon"
-          className="size-9"
-          onClick={transport === 'serial' ? onRefresh : onScanBle}
-          disabled={busy || bleScanning}
-        >
-          {transport === 'ble' && bleScanning ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="size-4" />
-          )}
-        </Button>
+          {displayedError && !isAutoDetecting && <Badge variant="destructive">{displayedError}</Badge>}
 
-        <Button
-          variant={connected ? 'destructive' : 'default'}
-          onClick={onConnectToggle}
-          disabled={busy || (!hasSelection && !connected)}
-        >
-          {busy && <Loader2 className="size-4 animate-spin" />}
-          {isAutoDetecting
-            ? t('status.detectingButton')
-            : status.stage === 'reconnecting'
-              ? t('status.reconnectingButton')
-              : isConnecting
-                ? connected
-                  ? t('status.disconnectingButton')
-                  : t('status.connectingButton')
-                : connected
-                  ? t('status.disconnectButton')
-                  : t('status.connectButton')}
-        </Button>
-
-        {displayedError && !isAutoDetecting && <Badge variant="destructive">{displayedError}</Badge>}
-
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="size-9">
-              <Settings2 className="size-4" />
-            </Button>
-          </SheetTrigger>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="icon" className="size-9 shrink-0">
+                <Settings2 className="size-4" />
+              </Button>
+            </SheetTrigger>
           <SheetContent>
             <SheetHeader>
               <SheetTitle>{t('app.settings')}</SheetTitle>
@@ -241,6 +247,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
             </div>
           </SheetContent>
         </Sheet>
+        </div>
       </div>
     </div>
   );

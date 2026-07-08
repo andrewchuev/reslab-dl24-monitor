@@ -1,3 +1,4 @@
+import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
@@ -13,9 +14,28 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Deliberately outside the repo (not under "gen/android") since it holds
+// the release signing password in plaintext.
+val keystoreProperties = Properties().apply {
+    val propsFile = File("""C:\Users\andre\reslab-dl24monitor-keystore.properties""")
+    if (propsFile.exists()) {
+        FileInputStream(propsFile).use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "dev.reslab.dl24monitor"
+    signingConfigs {
+        if (keystoreProperties.containsKey("storeFile")) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["password"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["password"] as String
+            }
+        }
+    }
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "dev.reslab.dl24monitor"
@@ -38,6 +58,9 @@ android {
             }
         }
         getByName("release") {
+            if (signingConfigs.findByName("release") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
