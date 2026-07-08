@@ -102,7 +102,7 @@ pub async fn ble_probe(address: String) -> Result<Vec<String>, String> {
     let query_frame = [HEADER[0], HEADER[1], crate::protocol::VOLTAGE, 0, 0, TRAILER];
     log::debug!("BLE TX: {}", hex(&query_frame));
     handler
-        .send_data(characteristic, Some(service), &query_frame, WriteType::WithResponse)
+        .send_data(characteristic, Some(service), &query_frame, WriteType::WithoutResponse)
         .await
         .map_err(|e| format!("send query (is_connected={}): {e}", handler.is_connected()))?;
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -111,7 +111,7 @@ pub async fn ble_probe(address: String) -> Result<Vec<String>, String> {
     let reset_frame = [HEADER[0], HEADER[1], crate::protocol::CMD_RESET, 0, 0, TRAILER];
     log::debug!("BLE TX: {}", hex(&reset_frame));
     handler
-        .send_data(characteristic, Some(service), &reset_frame, WriteType::WithResponse)
+        .send_data(characteristic, Some(service), &reset_frame, WriteType::WithoutResponse)
         .await
         .map_err(|e| format!("send reset (is_connected={}): {e}", handler.is_connected()))?;
     tokio::time::sleep(Duration::from_millis(1500)).await;

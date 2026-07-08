@@ -183,11 +183,19 @@ impl Write for BleSerialPort {
         let handler = tauri_plugin_blec::get_handler()
             .map_err(|e| io::Error::other(e.to_string()))?;
         log::debug!("BLE TX: {}", hex(buf));
+        // WithResponse triggers a write-retry bug in tauri-plugin-blec's
+        // Android backend: it misreads a successful GATT callback
+        // (status 0 / GATT_SUCCESS) as a failure and retries up to 100x
+        // before erroring out, even though the device already received and
+        // answered the write. WithoutResponse sidesteps that code path
+        // entirely - FFE1 supports it, and serial.rs's own retry/validation
+        // against the device's actual protocol response already covers the
+        // reliability that a GATT write ack would have provided.
         tauri::async_runtime::block_on(handler.send_data(
             char_uuid(),
             Some(service_uuid()),
             buf,
-            WriteType::WithResponse,
+            WriteType::WithoutResponse,
         ))
         .map_err(|e| io::Error::other(e.to_string()))?;
         Ok(buf.len())
