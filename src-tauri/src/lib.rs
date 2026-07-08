@@ -12,6 +12,7 @@ use state::AppState;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_specta::{collect_commands, collect_events, Builder};
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let specta_builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -32,8 +33,10 @@ pub fn run() {
         .events(collect_events![DeviceDataEvent, ConnectionStatusEvent]);
 
     // Regenerate the TypeScript bindings on every dev build so the frontend
-    // never drifts from the Rust command/event definitions.
-    #[cfg(debug_assertions)]
+    // never drifts from the Rust command/event definitions. Desktop-only:
+    // the relative "../src" path assumes running from the source tree, which
+    // doesn't hold on Android's sandboxed filesystem even in a debug build.
+    #[cfg(all(debug_assertions, desktop))]
     specta_builder
         .export(specta_typescript::Typescript::default(), "../src/bindings.ts")
         .expect("failed to export typescript bindings");

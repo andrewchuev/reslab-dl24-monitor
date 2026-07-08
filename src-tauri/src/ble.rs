@@ -64,6 +64,12 @@ impl From<BleDevice> for BleDeviceInfo {
 /// connect flow (`list_ble_devices`) and the `ble_test` debug panel, so the
 /// two can never drift apart.
 pub async fn scan_devices(timeout_ms: u64) -> Result<Vec<BleDeviceInfo>> {
+    // No-op on desktop; on Android this triggers the runtime Bluetooth/
+    // location permission prompt the first time it's needed.
+    if !tauri_plugin_blec::check_permissions(true).map_err(|e| anyhow!(e.to_string()))? {
+        return Err(anyhow!("Bluetooth permission not granted"));
+    }
+
     let handler = tauri_plugin_blec::get_handler().map_err(|e| anyhow!(e.to_string()))?;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<BleDevice>>(16);
