@@ -5,6 +5,10 @@ export type TransportKind = 'serial' | 'ble';
 export interface LastConnection {
   kind: TransportKind;
   value: string;
+  // BLE only - lets auto-reconnect show a real label in the device picker
+  // immediately, instead of a blank Select (the backend's own pre-connect
+  // scan populates its internal cache, not the frontend's device list).
+  name?: string;
 }
 
 export function loadLastConnection(): LastConnection | null {

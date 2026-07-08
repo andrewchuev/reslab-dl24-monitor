@@ -6,6 +6,7 @@
   },
   "status": {
     "detecting": "Пошук пристрою… ({{stage}})",
+    "connectingStage": "Підключення до пристрою…",
     "probingPort": "Перевірка {{port}} ({{attempt}}/{{maxAttempts}})",
     "probing": "Перевірка ({{attempt}}/{{maxAttempts}})",
     "connected": "Підключено",

@@ -6,6 +6,7 @@
   },
   "status": {
     "detecting": "Detecting device… ({{stage}})",
+    "connectingStage": "Connecting to device…",
     "probingPort": "Probing {{port}} ({{attempt}}/{{maxAttempts}})",
     "probing": "Probing ({{attempt}}/{{maxAttempts}})",
     "connected": "Connected",

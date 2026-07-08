@@ -6,6 +6,7 @@
   },
   "status": {
     "detecting": "Поиск устройства… ({{stage}})",
+    "connectingStage": "Подключение к устройству…",
     "probingPort": "Проверка {{port}} ({{attempt}}/{{maxAttempts}})",
     "probing": "Проверка ({{attempt}}/{{maxAttempts}})",
     "connected": "Подключено",

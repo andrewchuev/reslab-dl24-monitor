@@ -130,6 +130,15 @@ fn emit_device(app: &AppHandle, ds: &DataStore) {
     .emit(app);
 }
 
+/// Lets the frontend hide platform-inapplicable UI (e.g. Serial has no
+/// meaning on Android/iOS, which have no COM ports) by actual platform
+/// rather than guessing from viewport width.
+#[tauri::command]
+#[specta::specta]
+pub fn is_mobile() -> bool {
+    cfg!(mobile)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn list_ports() -> Vec<String> {
@@ -267,6 +276,12 @@ fn spawn_worker(
 
     mon.worker = Some(thread::spawn(move || {
         let res: Result<()> = (|| {
+            // `open()` can take several seconds on its own for BLE (a real
+            // scan to populate the plugin's device cache, then the actual
+            // GATT connect - see ble.rs) with nothing else reported in the
+            // meantime otherwise, which reads as the app being stuck.
+            emit_connection(&app_for_thread, false, None, Some("connecting".into()), None, None);
+
             let mut port = open()?;
 
             emit_connection(

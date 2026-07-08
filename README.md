@@ -2,11 +2,12 @@
 
 [![Release](https://img.shields.io/github/v/release/andrewchuev/reslab-dl24-monitor?label=release)](https://github.com/andrewchuev/reslab-dl24-monitor/releases/latest)
 
-A desktop instrument panel for the **Atorch DL24 / PX-100** USB electronic DC
-load: real-time voltage/current/power telemetry, capacity/energy/temperature/
-runtime metrics, CSV session export, and a Control Center for driving the
-load directly — set current, cut-off voltage, timeout, on/off, and counter
-reset.
+A desktop and Android instrument panel for the **Atorch DL24 / PX-100**
+electronic DC load: real-time voltage/current/power telemetry,
+capacity/energy/temperature/runtime metrics, CSV session export, and a
+Control Center for driving the load directly — set current, cut-off
+voltage, timeout, on/off, and counter reset. Connects over USB-serial,
+Bluetooth-SPP, or Bluetooth LE.
 
 ## Screenshots
 
@@ -16,15 +17,22 @@ reset.
 
 ## Features
 
-- Automatic port detection: remembers the last port that worked and tries
-  it first; otherwise (or if it's gone) probes every available port from
-  the highest number down, since the DL24 typically enumerates as the
-  last or second-to-last serial port on the system
+- Two transports, same protocol either way: **Serial** (USB or
+  Bluetooth-SPP) on desktop, and **Bluetooth LE** on both desktop and
+  Android. Desktop remembers the last COM port that worked and probes
+  every available port from the highest number down if it's gone (the
+  DL24 typically enumerates as the last or second-to-last serial port);
+  either platform remembers the last successful connection (port or BLE
+  device) and reconnects to it automatically on launch
+- Android hides the Serial option entirely (there's no such thing as a
+  COM port on a phone) rather than showing an option that can't work
 - Real-time voltage / current / power, each on its own auto-scaled chart
   with a real wall-clock time axis (not time elapsed since the app was
   opened) and full-session history (the "30s/5m/15m" range only zooms the
   live view; "All" and exports always cover the whole session, not just
-  what's currently rendered)
+  what's currently rendered). All three charts share a `syncId`, so
+  tapping or hovering any one of them shows the cursor/tooltip at the same
+  instant on all three
 - Capacity (Ah), energy (Wh), temperature and runtime readouts
 - CSV export of a monitoring session: a real timestamp plus elapsed
   seconds per row, full-precision voltage/current/power, unbounded by the
@@ -47,16 +55,49 @@ a static "Mode: CC" badge rather than a CC/CV/CR/CP selector.
 
 ## Tech Stack
 
-- **Backend:** Rust, [Tauri v2](https://v2.tauri.app/), [`serialport`](https://crates.io/crates/serialport), [`tauri-specta`](https://github.com/specta-rs/tauri-specta), [`rust_xlsxwriter`](https://crates.io/crates/rust_xlsxwriter)
+- **Backend:** Rust, [Tauri v2](https://v2.tauri.app/), [`serialport`](https://crates.io/crates/serialport) (desktop Serial), [`tauri-plugin-blec`](https://github.com/MnlPhlp/tauri-plugin-blec) (BLE, desktop + Android), [`tauri-specta`](https://github.com/specta-rs/tauri-specta), [`rust_xlsxwriter`](https://crates.io/crates/rust_xlsxwriter)
 - **Frontend:** React 19, TypeScript, [shadcn/ui](https://ui.shadcn.com/) (Radix + Tailwind v4), [Recharts](https://recharts.org/), [react-i18next](https://react.i18next.com/)
-- **Release automation:** GitHub Actions, [`tauri-action`](https://github.com/tauri-apps/tauri-action) (Windows/macOS/Linux installers)
+- **Platforms:** Windows, macOS, Linux, Android (Tauri Mobile)
+- **Release automation:** GitHub Actions, [`tauri-action`](https://github.com/tauri-apps/tauri-action) (Windows/macOS/Linux installers - Android is built and signed manually, see [Android](#android))
 
 ## Protocol
 
 The PX-100 exposes a binary command protocol over a 9600 8N1 UART link
-(USB-serial or Bluetooth-serial bridge). Every exchange is host-initiated:
-the app sends a 6-byte request frame and the device replies with either a
-1-byte acknowledgement (write commands) or a 7-byte data frame (queries).
+(USB-serial, Bluetooth-SPP, or Bluetooth LE). Every exchange is
+host-initiated: the app sends a 6-byte request frame and the device
+replies with either a 1-byte acknowledgement (write commands) or a 7-byte
+data frame (queries).
+
+### BLE transport
+
+The device exposes the same protocol over BLE via the standard
+"transparent UART" GATT profile - service `0000FFE0`, characteristic
+`0000FFE1` (`Write | WriteWithoutResponse | Notify`). `BleSerialPort`
+(`src-tauri/src/ble.rs`) implements the `serialport::SerialPort` trait
+over it, so every protocol function above runs unmodified regardless of
+transport - reads go over `Notify`, writes go out as
+`WriteWithoutResponse` (not `WithResponse`: `tauri-plugin-blec`'s Android
+backend misreads a successful GATT write callback as a failure and
+retries up to 100 times before giving up, even though the device already
+answered - confirmed via `adb logcat` against a real phone).
+
+The device also broadcasts its own native `FF 55`-framed telemetry
+unprompted over the same characteristic (a different, unrelated protocol
+family - see `src-tauri/examples/atorch_ff55.rs` for a decoder, validated
+field-by-field against this app's own readings including a live
+reset-counters transition). The app doesn't use it; `clear_buffer` just
+drains it as stale bytes ahead of each request, exactly like it already
+did for whatever noise showed up on the SPP link.
+
+Connecting reliably needs one more thing on Android:
+`tauri-plugin-blec`'s own `connect()` only auto-scans for 1s if its
+internal device cache is empty, which isn't always enough to catch the
+advertisement on a marginal link (e.g. right after a cold app launch).
+`BleSerialPort::connect` front-loads a real ~3s scan (with an actual
+channel drained to completion - passing `tx: None` returns almost
+immediately without scanning at all, since there's nothing to relay
+results to) before attempting to connect, which is what makes
+auto-reconnect-on-launch reliable rather than a coin flip.
 
 **Request frame**
 
@@ -185,6 +226,62 @@ cd src-tauri && cargo test    # protocol parsing + mocked serial framing
 cd src-tauri && cargo clippy  # Rust lints
 npx tsc --noEmit              # frontend type-checking
 ```
+
+## Android
+
+### Prerequisites
+
+- Android Studio, with the **NDK (Side by side)** package installed via its
+  SDK Manager (SDK Tools tab) - not installed by default, and `cargo`
+  can't cross-compile for Android without it
+- Windows only: symlinking the built `.so` into the Android project needs
+  [Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development)
+  enabled, or the build fails with `Creation symbolic link is not allowed`
+- `rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`
+- `ANDROID_HOME`, `NDK_HOME`, `JAVA_HOME` environment variables (the last
+  can point at Android Studio's bundled JBR, e.g.
+  `C:\Program Files\Android\Android Studio\jbr` on Windows)
+
+### Development
+
+```sh
+npx tauri android dev
+```
+
+Targets whichever emulator or USB-debugging-enabled device `adb` sees
+connected. **BLE does not reliably work on emulators** - they don't have
+real Bluetooth radio support - so BLE testing needs a physical device.
+
+### Release build
+
+Signing needs a keystore, generated once and kept outside the repo (the
+signing password lives in plaintext in the properties file that
+references it):
+
+```sh
+keytool -genkey -v -keystore /path/to/upload-keystore.jks -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Then a `keystore.properties` file (also outside the repo -
+`src-tauri/gen/android/app/build.gradle.kts` reads it from a hardcoded
+absolute path) with:
+
+```properties
+keyAlias=upload
+storeFile=/path/to/upload-keystore.jks
+password=<the keystore password>
+```
+
+```sh
+npx tauri android build --apk
+```
+
+Produces an unsigned-by-default build unless the signing config above is
+present, in which case the release APK/AAB is signed automatically. Output:
+`src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`.
+
+Not part of `.github/workflows/release.yml` - Android releases are built
+and signed locally.
 
 ## Releasing
 

@@ -8,6 +8,12 @@ interface MetricAreaChartProps {
   id: string;
   label: string;
   valueFormatter?: (value: number) => string;
+  // Shared across the V/A/W charts so tapping (or hovering) any one of them
+  // shows the cursor/tooltip at the same instant on all three - without
+  // this, touch input leaves each chart's tooltip stuck open independently
+  // (touch has no mouseleave to clear it), which reads as three unrelated
+  // glitches instead of one coherent instrument-panel reading.
+  syncId?: string;
 }
 
 // Recharts calls this with the tight [min, max] of the data actually in
@@ -39,7 +45,7 @@ function paddedDomain([dataMin, dataMax]: readonly [number, number]): [number, n
   return [Number((dataMin - pad).toFixed(6)), Number((dataMax + pad).toFixed(6))];
 }
 
-export default function MetricAreaChart({ data, color, unit, id, label, valueFormatter }: MetricAreaChartProps) {
+export default function MetricAreaChart({ data, color, unit, id, label, valueFormatter, syncId }: MetricAreaChartProps) {
   const gradientId = `chart-gradient-${id}`;
   const format = valueFormatter ?? ((v: number) => v.toFixed(2));
 
@@ -50,7 +56,7 @@ export default function MetricAreaChart({ data, color, unit, id, label, valueFor
         <span className="text-xs text-muted-foreground">{unit}</span>
       </div>
       <ResponsiveContainer width="100%" height="100%" minHeight={120}>
-        <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <AreaChart data={data} syncId={syncId} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={color} stopOpacity={0.35} />

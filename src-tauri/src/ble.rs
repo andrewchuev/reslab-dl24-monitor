@@ -109,6 +109,51 @@ impl BleSerialPort {
     pub fn connect(address: &str) -> Result<Self> {
         let handler = tauri_plugin_blec::get_handler().map_err(|e| anyhow!(e.to_string()))?;
 
+        // tauri-plugin-blec's own `connect()` only auto-scans for 1s if its
+        // internal device cache is empty, then gives up with
+        // "no peripheral with id" if the address wasn't seen in that window.
+        // On a weak/marginal link (e.g. auto-reconnect right after a cold
+        // app launch, before the radio's warmed up) 1s isn't always enough
+        // to catch the advertisement. Front-load a longer scan here so the
+        // cache is already populated by the time connect() checks it.
+        //
+        // Passing `tx: None` to `discover()` returns almost immediately
+        // (confirmed via logging: ~27ms for a requested 3000ms scan) - with
+        // no channel to relay results to, the plugin skips whatever
+        // internal wait it normally does. `scan_devices()` above works
+        // around this by passing a real channel and draining it until the
+        // scan actually completes; mirror that here instead of relying on
+        // the timeout_ms argument alone.
+        if let Err(e) = tauri_plugin_blec::check_permissions(true) {
+            log::warn!("BLE pre-scan permission check failed: {e}");
+        }
+        let prescan_start = std::time::Instant::now();
+        let prescan_result = tauri::async_runtime::block_on(async {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<BleDevice>>(16);
+            handler.discover(Some(tx), 3000, ScanFilter::None, false).await?;
+            let mut latest: Vec<BleDevice> = Vec::new();
+            while let Some(found) = rx.recv().await {
+                latest = found;
+            }
+            Ok::<Vec<BleDevice>, tauri_plugin_blec::Error>(latest)
+        });
+        match &prescan_result {
+            Ok(devices) => log::info!(
+                "BLE pre-scan for {address} took {:?}, found {} device(s): {}",
+                prescan_start.elapsed(),
+                devices.len(),
+                devices
+                    .iter()
+                    .map(|d| format!("{} ({})", d.name, d.address))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Err(e) => log::warn!(
+                "BLE pre-scan for {address} took {:?}, failed: {e}",
+                prescan_start.elapsed()
+            ),
+        }
+
         let mut last_err = None;
         let mut connected = false;
         for attempt in 1..=CONNECT_ATTEMPTS {

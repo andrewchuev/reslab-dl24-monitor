@@ -5,6 +5,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
+	/**
+	 *  Lets the frontend hide platform-inapplicable UI (e.g. Serial has no
+	 *  meaning on Android/iOS, which have no COM ports) by actual platform
+	 *  rather than guessing from viewport width.
+	 */
+	isMobile: () => __TAURI_INVOKE<boolean>("is_mobile"),
 	listPorts: () => __TAURI_INVOKE<string[]>("list_ports"),
 	connectPort: (portPath: string, pollIntervalMs: number | null) => typedError<null, string>(__TAURI_INVOKE("connect_port", { portPath, pollIntervalMs })),
 	connectBle: (address: string, pollIntervalMs: number | null) => typedError<null, string>(__TAURI_INVOKE("connect_ble", { address, pollIntervalMs })),

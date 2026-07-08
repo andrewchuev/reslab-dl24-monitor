@@ -17,6 +17,7 @@ import SettingsPanel from './SettingsPanel';
 type ConnectionStatus = Partial<ConnectionStatusEvent_Deserialize>;
 
 interface StatusHeaderProps {
+  isMobile: boolean;
   transport: TransportKind;
   onTransportChange: (transport: TransportKind) => void;
   ports: string[];
@@ -51,6 +52,7 @@ const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
 };
 
 function stageLabel(t: TFunction, status: ConnectionStatus, selectedPort: string | null): string {
+  if (status.stage === 'connecting') return t('status.connectingStage');
   if (status.stage === 'probing') {
     const attempt = status.attempt ?? 0;
     const maxAttempts = status.maxAttempts ?? 0;
@@ -71,6 +73,7 @@ function stageLabel(t: TFunction, status: ConnectionStatus, selectedPort: string
 
 export default function StatusHeader(props: StatusHeaderProps) {
   const {
+    isMobile,
     transport,
     onTransportChange,
     ports,
@@ -120,26 +123,30 @@ export default function StatusHeader(props: StatusHeaderProps) {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="flex items-center rounded-md border p-0.5">
-            <Button
-              variant={transport === 'serial' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-9"
-              disabled={connected || busy}
-              onClick={() => onTransportChange('serial')}
-            >
-              {t('status.transportSerial')}
-            </Button>
-            <Button
-              variant={transport === 'ble' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-9"
-              disabled={connected || busy}
-              onClick={() => onTransportChange('ble')}
-            >
-              {t('status.transportBle')}
-            </Button>
-          </div>
+          {/* Serial has no meaning on mobile (no COM ports) - not just
+              de-prioritized, not offered at all. */}
+          {!isMobile && (
+            <div className="flex items-center rounded-md border p-0.5">
+              <Button
+                variant={transport === 'serial' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-9"
+                disabled={connected || busy}
+                onClick={() => onTransportChange('serial')}
+              >
+                {t('status.transportSerial')}
+              </Button>
+              <Button
+                variant={transport === 'ble' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-9"
+                disabled={connected || busy}
+                onClick={() => onTransportChange('ble')}
+              >
+                {t('status.transportBle')}
+              </Button>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
           {transport === 'serial' ? (
@@ -173,7 +180,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
           <Button
             variant="outline"
             size="icon"
-            className="size-9 shrink-0"
+            className="size-11 shrink-0"
             onClick={transport === 'serial' ? onRefresh : onScanBle}
             disabled={busy || bleScanning}
           >
@@ -211,7 +218,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
 
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="size-9 shrink-0">
+              <Button variant="outline" size="icon" className="size-11 shrink-0">
                 <Settings2 className="size-4" />
               </Button>
             </SheetTrigger>

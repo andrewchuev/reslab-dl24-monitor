@@ -40,6 +40,10 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
     const [connected, setConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
+    // Actual platform, not a viewport guess - Serial has no meaning on
+    // Android/iOS (no COM ports), so it's hidden there entirely rather than
+    // just being an inconvenient extra option.
+    const [isMobile, setIsMobile] = useState(false);
     const [transport, setTransport] = useState<TransportKind>('serial');
     const [ports, setPorts] = useState<string[]>([]);
     const [selectedPort, setSelectedPort] = useState<string | null>(null);
@@ -94,7 +98,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
     async function runConnect(action: () => Promise<{ status: 'ok' | 'error'; error?: string }>) {
         setIsConnecting(true);
-        setConnectionStatus({ connected: false, stage: 'probing', attempt: 0 });
+        setConnectionStatus({ connected: false, stage: 'connecting' });
         chartDataRef.current = { times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         try {
@@ -275,9 +279,15 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     // of whether that came from auto-detect or a manual pick.
     useEffect(() => {
         if (connectionStatus.stage !== 'connected') return;
-        const value = transport === 'serial' ? selectedPort : selectedBleAddress;
-        if (value) saveLastConnection({ kind: transport, value });
-    }, [connectionStatus.stage, transport, selectedPort, selectedBleAddress]);
+        if (transport === 'serial') {
+            if (selectedPort) saveLastConnection({ kind: 'serial', value: selectedPort });
+            return;
+        }
+        if (selectedBleAddress) {
+            const name = bleDevices.find((d) => d.address === selectedBleAddress)?.name;
+            saveLastConnection({ kind: 'ble', value: selectedBleAddress, name });
+        }
+    }, [connectionStatus.stage, transport, selectedPort, selectedBleAddress, bleDevices]);
 
     useEffect(() => {
         saveSettings(settings);
@@ -327,7 +337,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                 });
                 setConnectionStatus(st);
                 setConnected(st.connected);
-                setIsConnecting(st.stage === 'probing' || st.stage === 'reconnecting');
+                setIsConnecting(st.stage === 'connecting' || st.stage === 'probing' || st.stage === 'reconnecting');
                 if (st.error) console.error('Connection error:', st.error);
             });
 
@@ -340,16 +350,30 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             // (e.g. when settings change) doesn't restart the scan.
             if (!autoDetectStartedRef.current) {
                 autoDetectStartedRef.current = true;
+                const mobile = await commands.isMobile();
+                setIsMobile(mobile);
                 const last = loadLastConnection();
 
-                if (last?.kind === 'ble') {
+                if (mobile || last?.kind === 'ble') {
                     // BLE auto-reconnect is a single attempt at the
                     // remembered address, not a multi-candidate queue like
-                    // serial - see the `autoDetectQueue` comment above.
+                    // serial - see the `autoDetectQueue` comment above. On
+                    // mobile, Serial isn't offered at all, so transport is
+                    // always BLE regardless of what (if anything) is
+                    // remembered.
                     setTransport('ble');
-                    setSelectedBleAddress(last.value);
-                    logAction('auto_detect_start_ble', { address: last.value });
-                    handleConnectBle(last.value);
+                    if (last?.kind === 'ble') {
+                        setSelectedBleAddress(last.value);
+                        // Seeds the device picker so it shows a real label
+                        // right away instead of sitting blank - the actual
+                        // connect below scans on the backend, which
+                        // populates its own internal cache but not this
+                        // list. A manual Scan later replaces this with
+                        // fresh results (rssi, etc).
+                        setBleDevices([{ name: last.name ?? '', address: last.value, rssi: null }]);
+                        logAction('auto_detect_start_ble', { address: last.value });
+                        handleConnectBle(last.value);
+                    }
                 } else {
                     const list = await fetchPorts();
                     if (list.length > 0) {
@@ -376,6 +400,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
             <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 md:gap-8 md:py-6 lg:px-8">
                 <section className="w-full">
                     <StatusHeader
+                        isMobile={isMobile}
                         transport={transport}
                         onTransportChange={setTransport}
                         ports={ports}

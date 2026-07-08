@@ -128,10 +128,10 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
               <SelectItem value="all">{t('telemetry.rangeAll')}</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" className="size-8" onClick={onPauseResume}>
+          <Button variant="outline" size="icon" className="size-11" onClick={onPauseResume}>
             {isPaused ? <Play className="size-4" /> : <Pause className="size-4" />}
           </Button>
-          <Button variant="outline" size="icon" className="size-8" onClick={onReset}>
+          <Button variant="outline" size="icon" className="size-11" onClick={onReset}>
             <RotateCcw className="size-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={onExportCsv} disabled={!hasData}>
@@ -148,7 +148,14 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
       {hasData ? (
         <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-3">
           <div className="h-[220px]">
-            <MetricAreaChart data={voltageData} color="#818cf8" unit="V" id="voltage" label={t('metrics.voltage')} />
+            <MetricAreaChart
+              data={voltageData}
+              color="#818cf8"
+              unit="V"
+              id="voltage"
+              label={t('metrics.voltage')}
+              syncId="telemetry"
+            />
           </div>
           <div className="h-[220px]">
             <MetricAreaChart
@@ -158,10 +165,18 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
               id="current"
               label={t('metrics.current')}
               valueFormatter={(v) => v.toFixed(3)}
+              syncId="telemetry"
             />
           </div>
           <div className="h-[220px]">
-            <MetricAreaChart data={powerData} color="#fbbf24" unit="W" id="power" label={t('metrics.power')} />
+            <MetricAreaChart
+              data={powerData}
+              color="#fbbf24"
+              unit="W"
+              id="power"
+              label={t('metrics.power')}
+              syncId="telemetry"
+            />
           </div>
         </div>
       ) : (

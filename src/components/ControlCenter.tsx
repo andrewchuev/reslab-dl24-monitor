@@ -167,11 +167,13 @@ export default function ControlCenter({ connected, data }: ControlCenterProps) {
 
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold">{t('controlCenter.heading')}</h2>
         {/* PX-100 only supports fixed constant-current mode: no mode-switch
             command exists in the protocol, so this is a label, not a selector. */}
-        <Badge variant="outline">{t('controlCenter.modeFixed')}</Badge>
+        <Badge variant="outline" className="shrink-0">
+          {t('controlCenter.modeFixed')}
+        </Badge>
       </div>
 
       <div className="flex flex-col gap-5">

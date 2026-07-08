@@ -16,6 +16,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 pub fn run() {
     let specta_builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
+            commands::is_mobile,
             commands::list_ports,
             commands::connect_port,
             commands::connect_ble,
