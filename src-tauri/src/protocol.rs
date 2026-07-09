@@ -88,6 +88,29 @@ pub fn is_plausible_reading(cmd: u8, value: f64) -> bool {
     }
 }
 
+/// Whether `new` is a big enough jump from `previous` (the last accepted
+/// reading for this same field) to be worth an extra confirmation read
+/// before trusting it. `None` for `previous` (no history yet, e.g. right
+/// after connecting) never flags anything - there's nothing to compare.
+///
+/// This is deliberately looser than `is_plausible_reading`: a jump this
+/// size sometimes IS real (toggling the load, a counters reset, a new
+/// setpoint), so it doesn't reject the value outright. It only asks
+/// `get_val`'s retry loop to see the same jump twice in a row before
+/// accepting it - a stale/misrouted response from a different command
+/// landing in this slot (see the `send_command` docs) won't repeat
+/// identically on the very next read, but a genuine change will.
+pub fn is_suspicious_jump(cmd: u8, previous: Option<f64>, new: f64) -> bool {
+    let Some(previous) = previous else { return false };
+    match cmd {
+        VOLTAGE | CURRENT | LIM_CURR | LIM_VOLT | CAP_AH | CAP_WH | TEMP => {
+            let delta = (new - previous).abs();
+            delta > previous.abs() * 0.3 + 0.2
+        }
+        _ => false,
+    }
+}
+
 /// Encodes a value as the protocol's (integer, 2-digit fraction) byte pair, e.g. `2.5 -> (2, 50)`.
 /// Used for set-current/set-cutoff commands. Negative input clamps to 0; out-of-byte-range
 /// magnitudes clamp rather than wrap, since silently sending a wrapped value to the device
@@ -161,5 +184,31 @@ mod tests {
         assert!(!is_plausible_reading(CURRENT, 271771.0));
         assert!(!is_plausible_reading(VOLTAGE, f64::NAN));
         assert!(!is_plausible_reading(VOLTAGE, -1.0));
+    }
+
+    #[test]
+    fn is_suspicious_jump_ignores_normal_ripple() {
+        assert!(!is_suspicious_jump(VOLTAGE, Some(19.35), 19.36));
+        assert!(!is_suspicious_jump(CURRENT, Some(3.001), 2.995));
+    }
+
+    #[test]
+    fn is_suspicious_jump_has_no_baseline_on_the_first_read() {
+        assert!(!is_suspicious_jump(VOLTAGE, None, 0.001));
+    }
+
+    #[test]
+    fn is_suspicious_jump_flags_reproduced_field_swap_glitches() {
+        // Taken from a real session log: voltage's own reading (~19.35V)
+        // showed up in current's slot, and the trailing dummy frame after
+        // the device's own broadcast decoded as a near-zero voltage.
+        assert!(is_suspicious_jump(CURRENT, Some(3.0), 19.361));
+        assert!(is_suspicious_jump(VOLTAGE, Some(19.35), 0.001));
+        assert!(is_suspicious_jump(LIM_VOLT, Some(8.0), 0.01));
+    }
+
+    #[test]
+    fn is_suspicious_jump_ignores_metrics_without_a_meaningful_history_check() {
+        assert!(!is_suspicious_jump(ISON, Some(1.0), 0.0));
     }
 }

@@ -146,12 +146,24 @@ pub fn send_command(
     Err(anyhow!("Timeout reading response"))
 }
 
+/// `previous` is the last accepted reading for this same field (from
+/// `DataStore`), used only to flag an implausibly large single-cycle jump -
+/// see `protocol::is_suspicious_jump`. Pass `None` where there's no
+/// meaningful history to compare against (e.g. the one-shot probe/reconnect
+/// confirmation reads, which only care that *some* valid reading came
+/// back).
 pub fn get_val(
     port: &mut dyn SerialPort,
     command: u8,
     retries: u8,
+    previous: Option<f64>,
     stop: &AtomicBool,
 ) -> Result<Option<Val>> {
+    // Set once a reading is flagged as a suspicious jump; a stale or
+    // misrouted response (see the `send_command` docs) won't reproduce the
+    // exact same value on the very next read, but a genuine change will -
+    // this is what tells the two apart without ever repeating this cycle.
+    let mut pending_jump: Option<f64> = None;
     for _attempt in 0..retries {
         if stop.load(Ordering::Relaxed) {
             return Ok(None);
@@ -179,17 +191,33 @@ pub fn get_val(
                         continue;
                     }
                     return Ok(Some(Val::Time(format!("{hh:02}:{mm:02}:{ss:02}"))));
-                } else {
-                    let raw: u32 = ((d1 as u32) << 16) | ((d2 as u32) << 8) | (d3 as u32);
-                    let v = (raw as f64) / protocol::mul(command);
-                    if !protocol::is_plausible_reading(command, v) {
-                        log::warn!(
-                            "get_val(cmd={command:#04x}): rejected implausible reading {v} (likely framing corruption), retrying"
-                        );
-                        continue;
-                    }
-                    return Ok(Some(Val::Num(v)));
                 }
+
+                let raw: u32 = ((d1 as u32) << 16) | ((d2 as u32) << 8) | (d3 as u32);
+                let v = (raw as f64) / protocol::mul(command);
+                if !protocol::is_plausible_reading(command, v) {
+                    log::warn!(
+                        "get_val(cmd={command:#04x}): rejected implausible reading {v} (likely framing corruption), retrying"
+                    );
+                    continue;
+                }
+
+                if protocol::is_suspicious_jump(command, previous, v) {
+                    match pending_jump {
+                        Some(prev) if (prev - v).abs() < (v.abs() * 0.02).max(0.02) => {
+                            return Ok(Some(Val::Num(v)));
+                        }
+                        _ => {
+                            log::debug!(
+                                "get_val(cmd={command:#04x}): {v} is a big jump from {previous:?}, confirming before accepting"
+                            );
+                            pending_jump = Some(v);
+                            continue;
+                        }
+                    }
+                }
+
+                return Ok(Some(Val::Num(v)));
             }
             Err(e) => {
                 log::debug!("get_val(cmd={command:#04x}): {e}");
@@ -200,6 +228,22 @@ pub fn get_val(
     }
 
     Ok(None)
+}
+
+/// The last accepted reading for `cmd` in `ds`, used as the baseline for
+/// `get_val`'s jump check. `None` for fields where a jump check doesn't
+/// apply (on/off, time strings).
+fn previous_value(ds: &DataStore, cmd: u8) -> Option<f64> {
+    match cmd {
+        protocol::VOLTAGE => Some(ds.voltage),
+        protocol::CURRENT => Some(ds.current),
+        protocol::CAP_AH => Some(ds.cap_ah),
+        protocol::CAP_WH => Some(ds.cap_wh),
+        protocol::TEMP => Some(ds.temp),
+        protocol::LIM_CURR => Some(ds.set_current),
+        protocol::LIM_VOLT => Some(ds.set_voltage),
+        _ => None,
+    }
 }
 
 fn cmd_to_key_update(ds: &mut DataStore, cmd: u8, val: Val) {
@@ -234,7 +278,7 @@ pub fn read_all(
         if stop.load(Ordering::Relaxed) {
             return Ok(read_count);
         }
-        if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, stop)? {
+        if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, previous_value(ds, cmd), stop)? {
             cmd_to_key_update(ds, cmd, v);
             read_count += 1;
         }
@@ -245,13 +289,13 @@ pub fn read_all(
             if stop.load(Ordering::Relaxed) {
                 return Ok(read_count);
             }
-            if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, stop)? {
+            if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, previous_value(ds, cmd), stop)? {
                 cmd_to_key_update(ds, cmd, v);
             }
         }
     } else {
         let cmd = AUX_VALS[*aux_index];
-        if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, stop)? {
+        if let Some(v) = get_val(port, cmd, VALUE_READ_RETRIES, previous_value(ds, cmd), stop)? {
             cmd_to_key_update(ds, cmd, v);
         }
         *aux_index = (*aux_index + 1) % AUX_VALS.len();
@@ -309,27 +353,35 @@ mod tests {
     use std::collections::VecDeque;
     use std::io::{self, Read, Write};
 
-    /// In-memory stand-in for a physical serial port. `pending_response` only
-    /// becomes readable once `write` is called, mirroring a real device that
-    /// replies to a request rather than having data sitting in the buffer
-    /// beforehand (which `clear_buffer` would otherwise discard as stale).
+    /// In-memory stand-in for a physical serial port. Each queued response
+    /// only becomes readable once a `write` call pops it, mirroring a real
+    /// device that replies to a request rather than having data sitting in
+    /// the buffer beforehand (which `clear_buffer` would otherwise discard
+    /// as stale) - and letting a multi-attempt test (retry/confirm logic)
+    /// script a different reply per attempt.
     struct MockPort {
         input: VecDeque<u8>,
-        pending_response: VecDeque<u8>,
+        pending_responses: VecDeque<Vec<u8>>,
         written: Vec<u8>,
     }
 
     impl MockPort {
         fn with_response(bytes: &[u8]) -> Self {
+            Self::with_responses(&[bytes])
+        }
+
+        /// One frame per `write` call, in order - the (n+1)th write gets
+        /// `frames[n]`, and any write past the end of the list gets nothing.
+        fn with_responses(frames: &[&[u8]]) -> Self {
             Self {
                 input: VecDeque::new(),
-                pending_response: bytes.iter().copied().collect(),
+                pending_responses: frames.iter().map(|f| f.to_vec()).collect(),
                 written: Vec::new(),
             }
         }
 
         fn silent() -> Self {
-            Self::with_response(&[])
+            Self::with_responses(&[])
         }
     }
 
@@ -346,7 +398,9 @@ mod tests {
     impl Write for MockPort {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.written.extend_from_slice(buf);
-            self.input.extend(self.pending_response.drain(..));
+            if let Some(next) = self.pending_responses.pop_front() {
+                self.input.extend(next);
+            }
             Ok(buf.len())
         }
         fn flush(&mut self) -> io::Result<()> {
@@ -514,7 +568,7 @@ mod tests {
         let mut port = MockPort::with_response(&response_packet(0x00, 0x30, 0x39));
         let stop = AtomicBool::new(false);
 
-        let val = get_val(&mut port, protocol::VOLTAGE, VALUE_READ_RETRIES, &stop).unwrap();
+        let val = get_val(&mut port, protocol::VOLTAGE, VALUE_READ_RETRIES, None, &stop).unwrap();
         match val {
             Some(Val::Num(v)) => assert!((v - 12.345).abs() < 1e-9),
             other => panic!("expected Val::Num(12.345), got {other:?}"),
@@ -526,10 +580,46 @@ mod tests {
         let mut port = MockPort::with_response(&response_packet(1, 2, 3));
         let stop = AtomicBool::new(false);
 
-        let val = get_val(&mut port, protocol::TIME_CMD, VALUE_READ_RETRIES, &stop).unwrap();
+        let val = get_val(&mut port, protocol::TIME_CMD, VALUE_READ_RETRIES, None, &stop).unwrap();
         match val {
             Some(Val::Time(t)) => assert_eq!(t, "01:02:03"),
             other => panic!("expected Val::Time, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn get_val_discards_a_one_off_jump_and_reports_the_confirmed_reading() {
+        // Reproduces a real session-log glitch: one cycle reads a stray
+        // near-zero value (e.g. a misrouted response landing in this
+        // slot), the very next read is back to the steady real value.
+        let mut port = MockPort::with_responses(&[
+            &response_packet(0x00, 0x00, 0x01), // -> 0.001, a huge jump from 19.35
+            &response_packet(0x00, 0x4B, 0x9E), // -> 19.358, consistent with history
+        ]);
+        let stop = AtomicBool::new(false);
+
+        let val = get_val(&mut port, protocol::VOLTAGE, VALUE_READ_RETRIES, Some(19.35), &stop).unwrap();
+        match val {
+            Some(Val::Num(v)) => assert!((v - 19.358).abs() < 1e-6, "expected the confirmed reading, got {v}"),
+            other => panic!("expected Val::Num, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn get_val_accepts_a_jump_confirmed_by_a_repeat_reading() {
+        // A genuine abrupt change (load just switched off) reads the same
+        // new value on two consecutive attempts - that repetition is what
+        // marks it as real rather than a one-off corrupted frame.
+        let mut port = MockPort::with_responses(&[
+            &response_packet(0x00, 0x00, 0x00),
+            &response_packet(0x00, 0x00, 0x00),
+        ]);
+        let stop = AtomicBool::new(false);
+
+        let val = get_val(&mut port, protocol::CURRENT, VALUE_READ_RETRIES, Some(3.0), &stop).unwrap();
+        match val {
+            Some(Val::Num(v)) => assert!(v.abs() < 1e-9, "expected the confirmed jump to 0, got {v}"),
+            other => panic!("expected Val::Num, got {other:?}"),
         }
     }
 

@@ -305,7 +305,7 @@ fn spawn_worker(
                 );
 
                 if let Some(Val::Num(_)) =
-                    serial::get_val(&mut *port, protocol::VOLTAGE, 1, &stop)?
+                    serial::get_val(&mut *port, protocol::VOLTAGE, 1, None, &stop)?
                 {
                     probe_ok = true;
                     break;
@@ -453,7 +453,7 @@ fn reconnect(
         log::warn!("reconnect attempt {attempt}/{RECONNECT_ATTEMPTS} for {label}");
 
         if let Ok(mut new_port) = open() {
-            if let Ok(Some(Val::Num(_))) = serial::get_val(&mut *new_port, protocol::VOLTAGE, 1, stop)
+            if let Ok(Some(Val::Num(_))) = serial::get_val(&mut *new_port, protocol::VOLTAGE, 1, None, stop)
             {
                 log::info!("reconnected to {label} after {attempt} attempt(s)");
                 return Some(new_port);
