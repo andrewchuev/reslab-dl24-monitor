@@ -82,23 +82,31 @@ export default function CombinedMetricChart({ data, labels }: CombinedMetricChar
           isAnimationActive={false}
         />
         <Line
-          yAxisId="current"
-          type="monotone"
-          dataKey="current"
-          name={labels.current}
-          stroke={CURRENT_COLOR}
-          strokeWidth={1.5}
-          dot={false}
-          activeDot={{ r: 3 }}
-          isAnimationActive={false}
-        />
-        <Line
           yAxisId="power"
           type="monotone"
           dataKey="power"
           name={labels.power}
           stroke={POWER_COLOR}
           strokeWidth={1.5}
+          dot={false}
+          activeDot={{ r: 3 }}
+          isAnimationActive={false}
+        />
+        {/* Power = Voltage x Current, so whenever voltage holds roughly
+            steady (the common case), power's curve is just a rescaled copy
+            of current's - each series is normalized to its own independent
+            axis, so the two traces end up nearly identical in chart-space
+            and current would be completely hidden under power's solid
+            line. Drawing it last (on top) with a dash pattern keeps it
+            legible even when the two paths coincide exactly. */}
+        <Line
+          yAxisId="current"
+          type="monotone"
+          dataKey="current"
+          name={labels.current}
+          stroke={CURRENT_COLOR}
+          strokeWidth={2}
+          strokeDasharray="5 3"
           dot={false}
           activeDot={{ r: 3 }}
           isAnimationActive={false}
