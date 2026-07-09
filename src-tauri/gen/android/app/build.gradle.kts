@@ -23,11 +23,24 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+// CI (GitHub Actions) has no access to the local properties file above - it
+// decodes the ANDROID_KEYSTORE_BASE64 secret to a file and passes its path
+// plus the alias/passwords via these env vars instead. Local dev keeps using
+// the properties file unchanged.
+val envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+
 android {
     compileSdk = 36
     namespace = "dev.reslab.dl24monitor"
     signingConfigs {
-        if (keystoreProperties.containsKey("storeFile")) {
+        if (envKeystorePath != null) {
+            create("release") {
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                storeFile = file(envKeystorePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        } else if (keystoreProperties.containsKey("storeFile")) {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["password"] as String
