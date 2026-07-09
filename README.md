@@ -1,6 +1,6 @@
 # Reslab DL24 Monitor
 
-[![Release](https://img.shields.io/github/v/release/andrewchuev/reslab-dl24-monitor?label=release)](https://github.com/andrewchuev/reslab-dl24-monitor/releases/latest)
+[![Download](https://img.shields.io/github/v/release/andrewchuev/reslab-dl24-monitor?label=download&style=for-the-badge&color=2f81f7)](https://github.com/andrewchuev/reslab-dl24-monitor/releases/latest)
 
 A desktop and Android instrument panel for the **Atorch DL24 / PX-100**
 electronic DC load: real-time voltage/current/power telemetry,
@@ -280,26 +280,29 @@ Produces an unsigned-by-default build unless the signing config above is
 present, in which case the release APK/AAB is signed automatically. Output:
 `src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`.
 
-Not part of `.github/workflows/release.yml` - Android releases are built
-and signed locally.
+This local build is for testing signing manually; the CI release build
+(below) produces the actual published APK.
 
 ## Releasing
 
-The app version lives in `package.json`; `src-tauri/tauri.conf.json` points at
-it directly and `src-tauri/Cargo.toml` is kept in sync automatically by
-`scripts/sync-version.cjs`, which runs as npm's `version` lifecycle script:
+Development happens on the private GitLab repo; GitHub only hosts the public
+README/screenshots/releases. The app version lives in `package.json`;
+`src-tauri/tauri.conf.json` points at it directly and `src-tauri/Cargo.toml` is
+kept in sync automatically by `scripts/sync-version.cjs`, which runs as npm's
+`version` lifecycle script:
 
 ```sh
 npm version patch   # or minor / major
-git push origin main --follow-tags
+git push origin main
+git push origin "v$(node -p "require('./package.json').version")"
 ```
 
-To cut a release, push that commit to the `release` branch:
+Push the tag as its own step, not bundled into the branch push via
+`--follow-tags` — GitLab only fires a pipeline per tag when it lands as its
+own ref update.
 
-```sh
-git push origin main:release
-```
-
-`.github/workflows/release.yml` then builds installers for Windows, macOS
-(Intel + Apple Silicon) and Linux and publishes them as a GitHub Release
-tagged `app-v<version>` — no pull request involved.
+Pushing the tag runs GitLab CI's `trigger-github-release` job, which asks
+`.github/workflows/release.yml` on GitHub to build installers for Windows,
+macOS (Intel + Apple Silicon), Linux, and the signed Android APK, cloning that
+exact tag from GitLab. Everything lands as a GitHub Release tagged
+`app-v<version>` — no manual GitHub-side step involved.
