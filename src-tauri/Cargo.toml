@@ -35,6 +35,11 @@ tauri-plugin-blec = "0.12"
 uuid = "1"
 tokio = { version = "1", features = ["time"] }
 
+# Desktop-only: there's no floating, resizable window to remember the
+# position/size of on Android/iOS.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-window-state = "2.4.1"
+
 # https://v2.tauri.app/concept/size/ - smaller, faster release binaries.
 # panic = "abort" is intentionally omitted: disconnect_port relies on
 # handle.join() observing a worker-thread panic as Err(_) to log it and keep

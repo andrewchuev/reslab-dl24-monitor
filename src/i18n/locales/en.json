@@ -17,8 +17,6 @@
     "connectionError": "Connection error",
     "selectPort": "Select port",
     "selectDevice": "Select device",
-    "transportSerial": "Serial",
-    "transportBle": "Bluetooth LE",
     "detectingButton": "Detecting…",
     "reconnectingButton": "Reconnecting…",
     "disconnectingButton": "Disconnecting…",
@@ -45,6 +43,8 @@
   "telemetry": {
     "heading": "Real-time Telemetry",
     "paused": "Paused",
+    "viewSeparate": "Separate charts",
+    "viewCombined": "Combined chart",
     "rangeAll": "All",
     "emptyState": "Connect to the device to start monitoring",
     "exportCsv": "CSV",

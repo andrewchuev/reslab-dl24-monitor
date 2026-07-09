@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Download, Pause, Play, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import CombinedMetricChart from './CombinedMetricChart';
 import MetricAreaChart from './MetricAreaChart';
 import type { TimeRange } from '../types';
+
+type ChartViewMode = 'separate' | 'combined';
 
 interface TelemetryChartsProps {
   hasData: boolean;
@@ -84,6 +87,7 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
   } = props;
 
   const { t } = useTranslation();
+  const [viewMode, setViewMode] = useState<ChartViewMode>('separate');
   const cutoffSec = rangeSeconds(timeRange);
   const last = times.length ? times[times.length - 1] : 0;
   const startWindow = last - cutoffSec * 1000;
@@ -103,8 +107,23 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
     [times, power, fromIdx, maxRenderPoints]
   );
 
+  // voltageData/currentData/powerData all decimate the same-length, same-
+  // time-base slice with the same stride, so they land on identical indices
+  // and times - safe to zip by position into one dataset for the combined
+  // view.
+  const combinedData = useMemo(
+    () =>
+      voltageData.map((d, i) => ({
+        time: d.time,
+        voltage: d.value,
+        current: currentData[i]?.value ?? 0,
+        power: powerData[i]?.value ?? 0,
+      })),
+    [voltageData, currentData, powerData]
+  );
+
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="flex h-full flex-col rounded-xl border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">{t('telemetry.heading')}</h2>
@@ -117,6 +136,24 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
           </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-md border p-0.5">
+            <Button
+              variant={viewMode === 'separate' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-8"
+              onClick={() => setViewMode('separate')}
+            >
+              {t('telemetry.viewSeparate')}
+            </Button>
+            <Button
+              variant={viewMode === 'combined' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-8"
+              onClick={() => setViewMode('combined')}
+            >
+              {t('telemetry.viewCombined')}
+            </Button>
+          </div>
           <Select value={timeRange} onValueChange={(v) => onTimeRangeChange(v as TimeRange)}>
             <SelectTrigger className="h-8 w-[90px]">
               <SelectValue />
@@ -146,41 +183,50 @@ export default function TelemetryCharts(props: TelemetryChartsProps) {
       </div>
 
       {hasData ? (
-        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-3">
-          <div className="h-[220px]">
-            <MetricAreaChart
-              data={voltageData}
-              color="#818cf8"
-              unit="V"
-              id="voltage"
-              label={t('metrics.voltage')}
-              syncId="telemetry"
+        viewMode === 'combined' ? (
+          <div className="min-h-[220px] flex-1 p-4">
+            <CombinedMetricChart
+              data={combinedData}
+              labels={{ voltage: t('metrics.voltage'), current: t('metrics.current'), power: t('metrics.power') }}
             />
           </div>
-          <div className="h-[220px]">
-            <MetricAreaChart
-              data={currentData}
-              color="#34d399"
-              unit="A"
-              id="current"
-              label={t('metrics.current')}
-              valueFormatter={(v) => v.toFixed(3)}
-              syncId="telemetry"
-            />
+        ) : (
+          <div className="grid flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-3">
+            <div className="h-full min-h-[220px]">
+              <MetricAreaChart
+                data={voltageData}
+                color="#818cf8"
+                unit="V"
+                id="voltage"
+                label={t('metrics.voltage')}
+                syncId="telemetry"
+              />
+            </div>
+            <div className="h-full min-h-[220px]">
+              <MetricAreaChart
+                data={currentData}
+                color="#34d399"
+                unit="A"
+                id="current"
+                label={t('metrics.current')}
+                valueFormatter={(v) => v.toFixed(3)}
+                syncId="telemetry"
+              />
+            </div>
+            <div className="h-full min-h-[220px]">
+              <MetricAreaChart
+                data={powerData}
+                color="#fbbf24"
+                unit="W"
+                id="power"
+                label={t('metrics.power')}
+                syncId="telemetry"
+              />
+            </div>
           </div>
-          <div className="h-[220px]">
-            <MetricAreaChart
-              data={powerData}
-              color="#fbbf24"
-              unit="W"
-              id="power"
-              label={t('metrics.power')}
-              syncId="telemetry"
-            />
-          </div>
-        </div>
+        )
       ) : (
-        <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+        <div className="flex min-h-[220px] flex-1 items-center justify-center text-sm text-muted-foreground">
           {t('telemetry.emptyState')}
         </div>
       )}

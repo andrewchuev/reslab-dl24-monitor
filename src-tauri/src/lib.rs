@@ -42,9 +42,19 @@ pub fn run() {
         .export(specta_typescript::Typescript::default(), "../src/bindings.ts")
         .expect("failed to export typescript bindings");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_blec::init())
+        .plugin(tauri_plugin_blec::init());
+
+    // Desktop-only: remembers the main window's position/size (and
+    // maximized state) across launches, so a window resized to actually fit
+    // the dashboard doesn't reset back to the small `tauri.conf.json`
+    // default (which only covers the very first run) every time the app
+    // starts. No mobile equivalent - those windows are always fullscreen.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+
+    builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 // Third-party crates stay quiet at Info; our own code (backend

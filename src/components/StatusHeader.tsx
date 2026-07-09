@@ -11,15 +11,15 @@ import type { BleDeviceInfo, ConnectionStatusEvent_Deserialize } from '../bindin
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '../i18n';
 import type { AppSettings } from '../types';
 import { translateBackendError } from '../utils/backendErrors';
-import type { TransportKind } from '../utils/lastPort';
 import SettingsPanel from './SettingsPanel';
 
 type ConnectionStatus = Partial<ConnectionStatusEvent_Deserialize>;
 
 interface StatusHeaderProps {
+  // Serial-only on desktop, BLE-only on mobile - see the `transport`
+  // constant in Dashboard.tsx. Not a user-facing choice, so there's no
+  // toggle here, just this flag picking which picker/scan UI to show.
   isMobile: boolean;
-  transport: TransportKind;
-  onTransportChange: (transport: TransportKind) => void;
   ports: string[];
   selectedPort: string | null;
   onSelectPort: (port: string) => void;
@@ -74,8 +74,6 @@ function stageLabel(t: TFunction, status: ConnectionStatus, selectedPort: string
 export default function StatusHeader(props: StatusHeaderProps) {
   const {
     isMobile,
-    transport,
-    onTransportChange,
     ports,
     selectedPort,
     onSelectPort,
@@ -99,7 +97,7 @@ export default function StatusHeader(props: StatusHeaderProps) {
   const { t, i18n } = useTranslation();
   const busy = isConnecting || isAutoDetecting;
   const displayedError = translateBackendError(t, status.error);
-  const hasSelection = transport === 'serial' ? Boolean(selectedPort) : Boolean(selectedBleAddress);
+  const hasSelection = isMobile ? Boolean(selectedBleAddress) : Boolean(selectedPort);
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -123,46 +121,8 @@ export default function StatusHeader(props: StatusHeaderProps) {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {/* Serial has no meaning on mobile (no COM ports) - not just
-              de-prioritized, not offered at all. */}
-          {!isMobile && (
-            <div className="flex items-center rounded-md border p-0.5">
-              <Button
-                variant={transport === 'serial' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-9"
-                disabled={connected || busy}
-                onClick={() => onTransportChange('serial')}
-              >
-                {t('status.transportSerial')}
-              </Button>
-              <Button
-                variant={transport === 'ble' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-9"
-                disabled={connected || busy}
-                onClick={() => onTransportChange('ble')}
-              >
-                {t('status.transportBle')}
-              </Button>
-            </div>
-          )}
-
           <div className="flex items-center gap-2">
-          {transport === 'serial' ? (
-            <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
-              <SelectTrigger className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none">
-                <SelectValue placeholder={t('status.selectPort')} />
-              </SelectTrigger>
-              <SelectContent>
-                {ports.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
+          {isMobile ? (
             <Select value={selectedBleAddress ?? ''} onValueChange={onSelectBleAddress} disabled={connected || busy}>
               <SelectTrigger className="h-9 min-w-0 flex-1 sm:w-[200px] sm:flex-none">
                 <SelectValue placeholder={t('status.selectDevice')} />
@@ -175,16 +135,29 @@ export default function StatusHeader(props: StatusHeaderProps) {
                 ))}
               </SelectContent>
             </Select>
+          ) : (
+            <Select value={selectedPort ?? ''} onValueChange={onSelectPort} disabled={connected || busy}>
+              <SelectTrigger className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none">
+                <SelectValue placeholder={t('status.selectPort')} />
+              </SelectTrigger>
+              <SelectContent>
+                {ports.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
 
           <Button
             variant="outline"
             size="icon"
             className="size-11 shrink-0"
-            onClick={transport === 'serial' ? onRefresh : onScanBle}
+            onClick={isMobile ? onScanBle : onRefresh}
             disabled={busy || bleScanning}
           >
-            {transport === 'ble' && bleScanning ? (
+            {isMobile && bleScanning ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <RefreshCw className="size-4" />

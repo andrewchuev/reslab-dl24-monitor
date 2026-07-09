@@ -10,7 +10,7 @@ import TelemetryCharts from './components/TelemetryCharts';
 import type { AppSettings, DeviceMetrics, TimeRange } from './types';
 import { loadLastConnection, saveLastConnection, type TransportKind } from './utils/lastPort';
 import { logAction, logError, logInfo } from './utils/log';
-import { buildCandidateQueue } from './utils/ports';
+import { buildCandidateQueue, sortPortsDescending } from './utils/ports';
 import { loadSettings, saveSettings } from './utils/settings';
 
 const FAILED_STAGES = new Set(['probe_failed', 'error', 'validation']);
@@ -41,10 +41,12 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     const [connected, setConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     // Actual platform, not a viewport guess - Serial has no meaning on
-    // Android/iOS (no COM ports), so it's hidden there entirely rather than
-    // just being an inconvenient extra option.
+    // Android/iOS (no COM ports) and BLE on this hardware is unreliable
+    // enough on desktop (see the auto-detect effect below) that it's not
+    // offered there either - so transport is a straight function of
+    // platform, not a user choice.
     const [isMobile, setIsMobile] = useState(false);
-    const [transport, setTransport] = useState<TransportKind>('serial');
+    const transport: TransportKind = isMobile ? 'ble' : 'serial';
     const [ports, setPorts] = useState<string[]>([]);
     const [selectedPort, setSelectedPort] = useState<string | null>(null);
     const [bleDevices, setBleDevices] = useState<BleDeviceInfo[]>([]);
@@ -85,7 +87,7 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
     // ==================== Handlers ====================
     async function fetchPorts() {
         try {
-            const list = await commands.listPorts();
+            const list = sortPortsDescending(await commands.listPorts());
             setPorts(list);
             logAction('refresh_ports', { found: list });
             return list;
@@ -102,17 +104,31 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
         chartDataRef.current = { times: [], voltage: [], current: [], power: [] };
         setHasData(false);
         try {
+            // `action()` (connect_port/connect_ble) only awaits the backend
+            // *accepting* the request - it returns as soon as the worker
+            // thread is spawned, well before the real connect/probe (which
+            // can take several seconds, longer still for BLE's retry loop)
+            // finishes. So on success this must NOT clear isConnecting here:
+            // that used to create a window where the UI looked idle - and
+            // transport/port controls re-enabled - while the previous
+            // attempt was still busy on the backend, letting a second
+            // connect race in and stall behind the first one's blocking
+            // disconnect_port() cleanup (see connect_port in commands.rs).
+            // The connection_status event stream (already wired up in the
+            // listener effect) is the only thing that knows when the
+            // attempt actually finishes, so it alone owns isConnecting from
+            // here on for the success path.
             const result = await action();
             if (result.status === 'error') {
                 console.error('Connection error:', result.error);
                 logError('connect failed', { error: result.error });
                 setConnectionStatus({ connected: false, error: result.error, stage: 'error' });
+                setIsConnecting(false);
             }
         } catch (err) {
             console.error('Connection error:', err);
             logError('connect threw', { error: String(err) });
             setConnectionStatus({ connected: false, error: String(err), stage: 'error' });
-        } finally {
             setIsConnecting(false);
         }
     }
@@ -354,14 +370,10 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                 setIsMobile(mobile);
                 const last = loadLastConnection();
 
-                if (mobile || last?.kind === 'ble') {
+                if (mobile) {
                     // BLE auto-reconnect is a single attempt at the
                     // remembered address, not a multi-candidate queue like
-                    // serial - see the `autoDetectQueue` comment above. On
-                    // mobile, Serial isn't offered at all, so transport is
-                    // always BLE regardless of what (if anything) is
-                    // remembered.
-                    setTransport('ble');
+                    // serial - see the `autoDetectQueue` comment above.
                     if (last?.kind === 'ble') {
                         setSelectedBleAddress(last.value);
                         // Seeds the device picker so it shows a real label
@@ -375,6 +387,11 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                         handleConnectBle(last.value);
                     }
                 } else {
+                    // Desktop is Serial-only - BLE is unreliable enough on
+                    // this hardware (frequent "no peripheral"/timeout
+                    // failures, see ble.rs) that it's not offered here at
+                    // all, regardless of what an older app version may have
+                    // saved as the last connection kind.
                     const list = await fetchPorts();
                     if (list.length > 0) {
                         const lastPort = last?.kind === 'serial' ? last.value : null;
@@ -397,12 +414,10 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
 
     return (
         <div className="h-full">
-            <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 md:gap-8 md:py-6 lg:px-8">
-                <section className="w-full">
+            <div className="mx-auto grid h-full w-full max-w-7xl grid-cols-1 gap-6 px-4 py-4 sm:px-6 md:gap-8 md:py-6 lg:grid-cols-4 lg:px-8">
+                <section className="w-full lg:col-span-4">
                     <StatusHeader
                         isMobile={isMobile}
-                        transport={transport}
-                        onTransportChange={setTransport}
                         ports={ports}
                         selectedPort={selectedPort}
                         onSelectPort={setSelectedPort}
@@ -426,34 +441,38 @@ export default function Dashboard({ themeMode, setThemeMode }: DashboardProps) {
                     />
                 </section>
 
-                <section className="w-full">
+                {/* Control Center sits right under the connection header on
+                    narrow/stacked layouts, so load controls are reachable
+                    without scrolling past the metrics and charts - on large
+                    screens `lg:order-4` moves it back beside the charts,
+                    which together still fill the same 4-column row. */}
+                <section className="order-2 h-full w-full lg:order-4 lg:col-span-1">
+                    <ControlCenter connected={connected} data={data} />
+                </section>
+
+                <section className="order-3 w-full lg:order-2 lg:col-span-4">
                     <HeroMetrics data={data} />
                 </section>
 
-                <section className="grid w-full grid-cols-1 gap-6 lg:grid-cols-3">
-                    <div className="lg:col-span-2">
-                        <TelemetryCharts
-                            hasData={hasData}
-                            times={chartSnapshot.times}
-                            voltage={chartSnapshot.voltage}
-                            current={chartSnapshot.current}
-                            power={chartSnapshot.power}
-                            timeRange={timeRange}
-                            onTimeRangeChange={setTimeRange}
-                            maxRenderPoints={settings.maxPoints}
-                            isPaused={isPaused}
-                            onPauseResume={togglePause}
-                            onReset={resetChart}
-                            onExportCsv={exportCsv}
-                            onExportXlsx={exportXlsx}
-                        />
-                    </div>
-                    <div>
-                        <ControlCenter connected={connected} data={data} />
-                    </div>
+                <section className="order-4 h-full w-full lg:order-3 lg:col-span-3">
+                    <TelemetryCharts
+                        hasData={hasData}
+                        times={chartSnapshot.times}
+                        voltage={chartSnapshot.voltage}
+                        current={chartSnapshot.current}
+                        power={chartSnapshot.power}
+                        timeRange={timeRange}
+                        onTimeRangeChange={setTimeRange}
+                        maxRenderPoints={settings.maxPoints}
+                        isPaused={isPaused}
+                        onPauseResume={togglePause}
+                        onReset={resetChart}
+                        onExportCsv={exportCsv}
+                        onExportXlsx={exportXlsx}
+                    />
                 </section>
 
-                <section className="w-full pb-2">
+                <section className="order-5 w-full pb-2 lg:col-span-4">
                     <SecondaryMetrics data={data} />
                 </section>
             </div>

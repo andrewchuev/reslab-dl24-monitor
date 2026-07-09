@@ -145,3 +145,12 @@ html {
     @apply font-sans;
     }
 }
+
+/* Recharts puts tabIndex={0} on the chart SVG for keyboard accessibility,
+   which combined with the global `outline-ring/50` reset above draws a
+   focus ring around the whole chart on every mouse click / touch tap.
+   Suppress it for pointer input only - :focus-visible still shows it for
+   actual keyboard navigation. */
+.recharts-surface:focus:not(:focus-visible) {
+    outline: none;
+}

@@ -17,8 +17,6 @@
     "connectionError": "Ошибка подключения",
     "selectPort": "Выберите порт",
     "selectDevice": "Выберите устройство",
-    "transportSerial": "Serial",
-    "transportBle": "Bluetooth LE",
     "detectingButton": "Поиск…",
     "reconnectingButton": "Переподключение…",
     "disconnectingButton": "Отключение…",
@@ -45,6 +43,8 @@
   "telemetry": {
     "heading": "Телеметрия в реальном времени",
     "paused": "Пауза",
+    "viewSeparate": "Раздельные графики",
+    "viewCombined": "Один график",
     "rangeAll": "Всё",
     "emptyState": "Подключите устройство, чтобы начать мониторинг",
     "exportCsv": "CSV",
