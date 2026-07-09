@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.6.0"
+version = "0.6.1"
 description = "DL24 / PX-100 electronic load monitor and controller"
 authors = ["Andrew A. Chuev"]
 edition = "2021"
