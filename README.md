@@ -2,7 +2,7 @@
 
 [![Download](https://img.shields.io/github/v/release/andrewchuev/reslab-dl24-monitor?label=download&style=for-the-badge&color=2f81f7)](https://github.com/andrewchuev/reslab-dl24-monitor/releases/latest)
 
-A desktop and Android instrument panel for the **Atorch DL24 / PX-100**
+A desktop and Android instrument panel for the **Atorch DL24**
 electronic DC load: real-time voltage/current/power telemetry,
 capacity/energy/temperature/runtime metrics, CSV session export, and a
 Control Center for driving the load directly — set current, cut-off
