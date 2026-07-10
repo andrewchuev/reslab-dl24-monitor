@@ -11,9 +11,13 @@ Bluetooth-SPP, or Bluetooth LE.
 
 ## Screenshots
 
-| Live telemetry | Settings | Light theme | Compact layout |
+| Live telemetry | Combined chart | Light theme | Compact layout |
 | --- | --- | --- | --- |
-| ![Dashboard](docs/screenshots/screenshot_01.png) | ![Settings](docs/screenshots/screenshot_02.png) | ![Light theme](docs/screenshots/screenshot_03.png) | ![Compact layout](docs/screenshots/screenshot_04.png) |
+| ![Dashboard](docs/screenshots/Screenshot_1.png) | ![Combined chart](docs/screenshots/Screenshot_2.png) | ![Light theme](docs/screenshots/Screenshot_3.png) | ![Compact layout](docs/screenshots/Screenshot_5.png) |
+
+| Excel export — telemetry | Excel export — charts |
+| --- | --- |
+| ![Excel export, telemetry sheet](docs/screenshots/Screenshot_9.png) | ![Excel export, charts sheet](docs/screenshots/Screenshot_10.png) |
 
 ## Features
 
